@@ -1,0 +1,163 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Deploy to IGEL Device",
+            "type": "shell",
+            "command": "scp",
+            "args": [
+                "-r",
+                ".",
+                "root@${input:igelHost}:/opt/igel-setup/"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Remote Installation",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "cd /opt/igel-setup && chmod +x *.sh scripts/*.sh configs/tailscale/connect.sh && ./install.sh"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [],
+            "dependsOn": "Deploy to IGEL Device"
+        },
+        {
+            "label": "Deploy and Install",
+            "type": "shell",
+            "command": "echo",
+            "args": ["Deploying and installing IGEL setup..."],
+            "group": "build",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Deploy to IGEL Device",
+                "Run Remote Installation"
+            ]
+        },
+        {
+            "label": "Check IGEL Status",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "systemctl status tailscaled casaos cockpit.socket igel-monitor"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "View IGEL Logs",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "tail -f /var/log/igel-setup.log"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Backup IGEL Configuration",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "/opt/igel-setup/scripts/backup-config.sh backup"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "IGEL System Health Check",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "/usr/local/bin/igel-maintenance health"
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Update IGEL System",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "/usr/local/bin/igel-maintenance update"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "IGEL Network Setup",
+            "type": "shell",
+            "command": "ssh",
+            "args": [
+                "root@${input:igelHost}",
+                "/usr/local/bin/igel-network-setup setup"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "igelHost",
+            "description": "IGEL device hostname or IP address",
+            "default": "192.168.1.100",
+            "type": "promptString"
+        }
+    ]
+}

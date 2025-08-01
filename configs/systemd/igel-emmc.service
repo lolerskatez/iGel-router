@@ -1,0 +1,14 @@
+[Unit]
+Description=IGEL eMMC Optimization Service
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/emmc-setup.sh setup
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

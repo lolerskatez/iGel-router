@@ -1,0 +1,10 @@
+[Match]
+Name=wl*
+
+[Network]
+DHCP=yes
+IPForward=yes
+
+[DHCP]
+RouteMetric=50
+UseDNS=yes

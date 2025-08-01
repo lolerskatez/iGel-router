@@ -1,0 +1,16 @@
+[Unit]
+Description=IGEL M250C System Monitor Service
+After=network.target tailscaled.service casaos.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/igel-monitor.sh
+Restart=always
+RestartSec=30
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

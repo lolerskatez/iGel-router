@@ -1,0 +1,18 @@
+# Network Configuration for IGEL M250C
+# This file contains network interface priorities and settings
+
+# Interface priority order (higher number = higher priority)
+# ethernet: 100
+# wifi: 50
+# cellular: 10
+
+[Match]
+Name=enp*
+
+[Network]
+DHCP=yes
+IPForward=yes
+
+[DHCP]
+RouteMetric=100
+UseDNS=yes
