@@ -353,9 +353,6 @@ https://github.com/your-repo/igel-m250c-router
 EOF
 }
 
-# Main installation function
-}
-
 # System information
 show_system_info() {
     log "=== IGEL M250C System Information ==="
