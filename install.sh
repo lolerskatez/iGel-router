@@ -428,12 +428,12 @@ net.core.netdev_max_backlog = 5000
 # Reduce swap usage to preserve USB drive
 vm.swappiness = 10
 
-# Connection tracking for NAT
+# Connection tracking for NAT (will be applied after netfilter modules are loaded)
 net.netfilter.nf_conntrack_max = 65536
 EOF
     
-    # Apply immediately
-    sysctl -p
+    # Apply immediately (ignore errors for parameters that can't be set yet)
+    sysctl -p || log_warning "Some sysctl parameters couldn't be applied yet (normal during installation)"
     
     log "IP forwarding and network optimizations configured"
 }
