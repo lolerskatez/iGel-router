@@ -815,7 +815,6 @@ Installation logs: tail -f /var/log/igel-setup.log
 
 EOF
     log "Login message (MOTD) configured for headless access"
-    fi
     
     # Set up cron jobs for automated maintenance
     cat > /etc/cron.d/igel-maintenance << 'EOF'
