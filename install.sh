@@ -970,11 +970,6 @@ show_final_status() {
     echo
     echo "Configuration saved to: $LOG_FILE"
     echo "For troubleshooting: /opt/igel-setup/README.md"
-        echo -e "${YELLOW}To complete Tailscale setup, run:${NC}"
-        echo -e "${BLUE}tailscale up --advertise-routes=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12 --advertise-exit-node --accept-routes${NC}"
-        echo
-        echo "This will provide a URL to visit for authentication."
-    fi
     
     echo
     log "Next Steps:"
@@ -986,6 +981,11 @@ show_final_status() {
             log "4. Use Cockpit for advanced system management"
         fi
     else
+        echo -e "${YELLOW}To complete Tailscale setup, run:${NC}"
+        echo -e "${BLUE}tailscale up --advertise-routes=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12 --advertise-exit-node --accept-routes${NC}"
+        echo
+        echo "This will provide a URL to visit for authentication."
+        echo
         log "1. Complete Tailscale authentication (see command above)"
         log "2. Configure your Tailscale admin console to approve subnet routes"
         log "3. Test connectivity from other Tailscale devices"
