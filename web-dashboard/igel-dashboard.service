@@ -1,0 +1,21 @@
+[Unit]
+Description=IGEL M250C Router Dashboard
+After=network.target tailscaled.service
+
+[Service]
+Type=forking
+User=app-services
+Group=app-services
+WorkingDirectory=/opt/igel-setup/web-dashboard
+Environment=PATH=/opt/igel-setup/web-dashboard/venv/bin
+Environment=DASHBOARD_PORT=8088
+Environment=FLASK_ENV=production
+ExecStart=/opt/igel-setup/web-dashboard/venv/bin/gunicorn --daemon --workers 2 --bind 0.0.0.0:8088 --pid /var/run/igel-dashboard.pid app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+PIDFile=/var/run/igel-dashboard.pid
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

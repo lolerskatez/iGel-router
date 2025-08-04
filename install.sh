@@ -3,6 +3,15 @@
 # IGEL M250C Tailscale Subnet Router Setup Script
 # This script configures an IGEL M250C thin client as a headless Tailscale subnet router
 # and exit node using USB-booted Debian 12
+#
+# REQUIRED: Only Tailscale installation is mandatory
+# OPTIONAL: All other features (CasaOS, Cockpit, monitoring, etc.) are optional
+#
+# Usage:
+#   sudo ./install.sh                    # Interactive setup
+#   sudo ./install.sh --minimal          # Tailscale only  
+#   sudo ./install.sh --full             # All features
+#   sudo ./install.sh --help             # Show all options
 
 set -euo pipefail
 
@@ -11,12 +20,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="/var/log/igel-setup.log"
 TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"
 INSTALL_COCKPIT="${INSTALL_COCKPIT:-}"
+INSTALL_CASAOS="${INSTALL_CASAOS:-}"
+INSTALL_HEADSCALE="${INSTALL_HEADSCALE:-}"
+INSTALL_HEADPLANE="${INSTALL_HEADPLANE:-}"
+INSTALL_DASHBOARD="${INSTALL_DASHBOARD:-true}"
 USE_EMMC="${USE_EMMC:-}"
 DEVICE_HOSTNAME="${DEVICE_HOSTNAME:-}"
 ADVERTISED_ROUTES="${ADVERTISED_ROUTES:-}"
+HEADSCALE_DOMAIN="${HEADSCALE_DOMAIN:-}"
+HEADSCALE_LISTEN_PORT="${HEADSCALE_LISTEN_PORT:-8080}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-8088}"
 NETWORK_INTERFACE_MODE="${NETWORK_INTERFACE_MODE:-auto}"
 INTERACTIVE_MODE="${INTERACTIVE_MODE:-true}"
-ENABLE_SECURITY_HARDENING="${ENABLE_SECURITY_HARDENING:-true}"
+ENABLE_SECURITY_HARDENING="${ENABLE_SECURITY_HARDENING:-}"
+ENABLE_MONITORING="${ENABLE_MONITORING:-}"
+ENABLE_MAINTENANCE_SCRIPTS="${ENABLE_MAINTENANCE_SCRIPTS:-}"
+ENABLE_SYSTEM_OPTIMIZATION="${ENABLE_SYSTEM_OPTIMIZATION:-}"
 INSTALL_ID="igel-$(date +%Y%m%d)-$(openssl rand -hex 4 2>/dev/null || echo $(shuf -i 1000-9999 -n 1))"
 
 # Colors for output
@@ -105,7 +124,7 @@ preflight_checks() {
 # Interactive configuration prompt
 interactive_config() {
     # Skip if all values are already set via environment variables
-    if [[ -n "$TAILSCALE_AUTH_KEY" && -n "$INSTALL_COCKPIT" && -n "$USE_EMMC" && -n "$DEVICE_HOSTNAME" ]]; then
+    if [[ -n "$TAILSCALE_AUTH_KEY" && -n "$INSTALL_COCKPIT" && -n "$INSTALL_CASAOS" && -n "$USE_EMMC" && -n "$DEVICE_HOSTNAME" && -n "$ENABLE_SECURITY_HARDENING" ]]; then
         log "Using configuration from environment variables"
         return 0
     fi
@@ -117,7 +136,8 @@ interactive_config() {
     echo -e "${BLUE}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
     echo
     echo "This wizard will guide you through configuring your IGEL M250C as a"
-    echo "Tailscale subnet router. You can press Enter to use default values."
+    echo "Tailscale subnet router. Only Tailscale is required - all other features are optional."
+    echo "You can press Enter to use default values or skip optional features."
     echo
     
     # Device hostname
@@ -148,12 +168,34 @@ interactive_config() {
         echo
     fi
     
+    # Web management interfaces
+    if [[ -z "$INSTALL_CASAOS" ]]; then
+        echo -e "${YELLOW}Web Management Interface - CasaOS${NC}"
+        echo "CasaOS provides a user-friendly web interface for managing Docker containers and services:"
+        echo "  • Easy Docker container management"
+        echo "  • App store for common applications"
+        echo "  • File management and media server capabilities"
+        echo
+        while true; do
+            read -p "Install CasaOS for container management? [Y/n]: " -n 1 -r casaos_choice
+            echo
+            case $casaos_choice in
+                [Yy]|"") INSTALL_CASAOS="true"; break ;;
+                [Nn]) INSTALL_CASAOS="false"; break ;;
+                *) echo "Please answer Y or n" ;;
+            esac
+        done
+        echo
+    fi
+    
     # Cockpit installation
     if [[ -z "$INSTALL_COCKPIT" ]]; then
-        echo -e "${YELLOW}Web Management Interface${NC}"
-        echo "Choose your management interface preference:"
-        echo "  • CasaOS: User-friendly, Docker-focused (always installed)"
-        echo "  • Cockpit: Advanced system management (optional)"
+        echo -e "${YELLOW}Web Management Interface - Cockpit${NC}"
+        echo "Cockpit provides advanced system management capabilities:"
+        echo "  • System monitoring and performance metrics"
+        echo "  • Network configuration and firewall management"
+        echo "  • Service management and log viewing"
+        echo "  • Terminal access and file management"
         echo
         while true; do
             read -p "Install Cockpit for advanced system management? [Y/n]: " -n 1 -r cockpit_choice
@@ -203,7 +245,7 @@ interactive_config() {
     # Network routes
     if [[ -z "$ADVERTISED_ROUTES" ]]; then
         echo -e "${YELLOW}Network Route Configuration${NC}"
-        echo "Configure which networks this router will advertise to Tailscale clients:"
+        echo "Configure which networks this router will advertise to VPN clients:"
         echo
         echo "Default routes (recommended for most setups):"
         echo "  • 192.168.0.0/16  - Most home/office networks"
@@ -249,6 +291,71 @@ interactive_config() {
         echo
     fi
     
+    # Headscale installation
+    if [[ -z "$INSTALL_HEADSCALE" ]]; then
+        echo -e "${YELLOW}Self-Hosted VPN Server - Headscale${NC}"
+        echo "Headscale is a self-hosted, open-source implementation of the Tailscale coordination server:"
+        echo "  • Full control over your VPN infrastructure"
+        echo "  • No reliance on external Tailscale service"
+        echo "  • Custom domain and branding"
+        echo "  • Advanced access controls and policies"
+        echo "  • Includes Headplane web UI for management"
+        echo
+        echo "⚠️  Note: Installing Headscale will make this device a VPN server."
+        echo "   Clients will connect to THIS device instead of Tailscale's servers."
+        echo
+        while true; do
+            read -p "Install Headscale server for self-hosted VPN? [y/N]: " -n 1 -r headscale_choice
+            echo
+            case $headscale_choice in
+                [Yy]) 
+                    INSTALL_HEADSCALE="true"
+                    
+                    # Get domain for Headscale
+                    echo
+                    echo "Headscale requires a domain name for clients to connect."
+                    echo "This can be:"
+                    echo "  • Your router's IP address (e.g., 192.168.1.100)"
+                    echo "  • A domain name pointing to this router (e.g., vpn.yourdomain.com)"
+                    echo "  • A dynamic DNS hostname"
+                    echo
+                    read -p "Enter domain/IP for Headscale [$(hostname -I | awk '{print $1}')]: " -r domain_input
+                    HEADSCALE_DOMAIN="${domain_input:-$(hostname -I | awk '{print $1}')}"
+                    
+                    echo
+                    read -p "Enter port for Headscale [8080]: " -r port_input
+                    HEADSCALE_LISTEN_PORT="${port_input:-8080}"
+                    
+                    # Ask about Headplane web UI
+                    echo
+                    echo "Headplane provides a web-based UI for managing Headscale:"
+                    echo "  • Device management and monitoring"
+                    echo "  • User and access control management"
+                    echo "  • Network topology visualization"
+                    echo "  • Route and policy configuration"
+                    echo
+                    while true; do
+                        read -p "Install Headplane web UI? [Y/n]: " -n 1 -r headplane_choice
+                        echo
+                        case $headplane_choice in
+                            [Yy]|"") INSTALL_HEADPLANE="true"; break ;;
+                            [Nn]) INSTALL_HEADPLANE="false"; break ;;
+                            *) echo "Please answer Y or n" ;;
+                        esac
+                    done
+                    break
+                    ;;
+                [Nn]|"") 
+                    INSTALL_HEADSCALE="false"
+                    INSTALL_HEADPLANE="false"
+                    break
+                    ;;
+                *) echo "Please answer y or N" ;;
+            esac
+        done
+        echo
+    fi
+    
     if [[ -z "$ENABLE_SECURITY_HARDENING" ]]; then
         echo -e "${YELLOW}Security Hardening${NC}"
         echo "Additional security measures can be applied to harden this router:"
@@ -259,12 +366,72 @@ interactive_config() {
         echo "  • Enhanced logging and monitoring"
         echo
         while true; do
-            read -p "Enable additional security hardening? [Y/n]: " -n 1 -r security_choice
+            read -p "Enable additional security hardening? [y/N]: " -n 1 -r security_choice
             echo
             case $security_choice in
-                [Yy]|"") ENABLE_SECURITY_HARDENING="true"; break ;;
-                [Nn]) ENABLE_SECURITY_HARDENING="false"; break ;;
-                *) echo "Please answer Y or n" ;;
+                [Yy]) ENABLE_SECURITY_HARDENING="true"; break ;;
+                [Nn]|"") ENABLE_SECURITY_HARDENING="false"; break ;;
+                *) echo "Please answer y or N" ;;
+            esac
+        done
+        echo
+    fi
+    
+    if [[ -z "$ENABLE_MONITORING" ]]; then
+        echo -e "${YELLOW}System Monitoring${NC}"
+        echo "Install system monitoring service that tracks:"
+        echo "  • Tailscale connectivity status"
+        echo "  • Disk and memory usage"
+        echo "  • Service health and performance"
+        echo "  • Automated log collection"
+        echo
+        while true; do
+            read -p "Enable system monitoring service? [y/N]: " -n 1 -r monitor_choice
+            echo
+            case $monitor_choice in
+                [Yy]) ENABLE_MONITORING="true"; break ;;
+                [Nn]|"") ENABLE_MONITORING="false"; break ;;
+                *) echo "Please answer y or N" ;;
+            esac
+        done
+        echo
+    fi
+    
+    if [[ -z "$ENABLE_MAINTENANCE_SCRIPTS" ]]; then
+        echo -e "${YELLOW}Automated Maintenance${NC}"
+        echo "Install maintenance scripts and automated tasks for:"
+        echo "  • System health checks and diagnostics"
+        echo "  • Automated backups and updates"
+        echo "  • Network connectivity monitoring"
+        echo "  • Log rotation and cleanup"
+        echo
+        while true; do
+            read -p "Install maintenance scripts and automation? [y/N]: " -n 1 -r maintenance_choice
+            echo
+            case $maintenance_choice in
+                [Yy]) ENABLE_MAINTENANCE_SCRIPTS="true"; break ;;
+                [Nn]|"") ENABLE_MAINTENANCE_SCRIPTS="false"; break ;;
+                *) echo "Please answer y or N" ;;
+            esac
+        done
+        echo
+    fi
+    
+    if [[ -z "$ENABLE_SYSTEM_OPTIMIZATION" ]]; then
+        echo -e "${YELLOW}System Optimization${NC}"
+        echo "Apply system optimizations for router performance:"
+        echo "  • Reduced logging to preserve USB drive"
+        echo "  • Optimized kernel parameters for networking"
+        echo "  • Memory and swap optimizations"
+        echo "  • Log rotation and journald configuration"
+        echo
+        while true; do
+            read -p "Apply system optimizations? [y/N]: " -n 1 -r optimization_choice
+            echo
+            case $optimization_choice in
+                [Yy]) ENABLE_SYSTEM_OPTIMIZATION="true"; break ;;
+                [Nn]|"") ENABLE_SYSTEM_OPTIMIZATION="false"; break ;;
+                *) echo "Please answer y or N" ;;
             esac
         done
         echo
@@ -273,10 +440,20 @@ interactive_config() {
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
     echo
     echo "Device Hostname: $DEVICE_HOSTNAME"
-    echo "Use eMMC Storage: $USE_EMMC"
-    echo "Install Cockpit: $INSTALL_COCKPIT"
+    echo "Use eMMC Storage: ${USE_EMMC:-false}"
+    echo "Install CasaOS: ${INSTALL_CASAOS:-false}"
+    echo "Install Cockpit: ${INSTALL_COCKPIT:-false}"
+    echo "Install Headscale Server: ${INSTALL_HEADSCALE:-false}"
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+        echo "  Headscale Domain: ${HEADSCALE_DOMAIN}"
+        echo "  Headscale Port: ${HEADSCALE_LISTEN_PORT}"
+        echo "  Install Headplane UI: ${INSTALL_HEADPLANE:-false}"
+    fi
     echo "Network Interface Mode: $NETWORK_INTERFACE_MODE"
-    echo "Security Hardening: $ENABLE_SECURITY_HARDENING"
+    echo "Security Hardening: ${ENABLE_SECURITY_HARDENING:-false}"
+    echo "System Monitoring: ${ENABLE_MONITORING:-false}"
+    echo "Maintenance Scripts: ${ENABLE_MAINTENANCE_SCRIPTS:-false}"
+    echo "System Optimization: ${ENABLE_SYSTEM_OPTIMIZATION:-false}"
     echo "Advertised Routes: $ADVERTISED_ROUTES"
     echo "Tailscale Auth Key: ${TAILSCALE_AUTH_KEY:+[Provided]}${TAILSCALE_AUTH_KEY:-[Will prompt later]}"
     echo
@@ -303,7 +480,8 @@ show_help() {
 IGEL M250C Tailscale Router Setup
 
 This script sets up an IGEL M250C thin client as a headless Tailscale subnet router
-and exit node running Debian 12 from a USB drive.
+and exit node running Debian 12 from a USB drive. Only Tailscale is required - all
+other features are optional.
 
 USAGE:
     sudo ./install.sh [OPTIONS]
@@ -314,31 +492,60 @@ OPTIONS:
     --tailscale-key=KEY        Tailscale auth key (starts with tskey-auth-)
     --hostname=NAME            Device hostname (default: igel-m250c-router)
     --routes=ROUTES            Comma-separated CIDR routes to advertise
-    --no-cockpit               Skip Cockpit installation
-    --no-emmc                  Skip eMMC configuration
+    
+    Headscale Self-Hosted VPN Options:
+    --headscale                Enable Headscale server installation
+    --headscale-domain=DOMAIN  Domain/IP for Headscale server (required with --headscale)
+    --headscale-port=PORT      Headscale listen port (default: 8080)
+    --headplane                Enable Headplane web UI (requires --headscale)
+    --no-headscale             Disable Headscale installation (default)
+    
+    Optional Feature Controls:
+    --no-casaos                Skip CasaOS installation (Docker web UI)
+    --no-cockpit               Skip Cockpit installation (system management)
+    --no-emmc                  Skip eMMC storage configuration
+    --no-security              Skip security hardening
+    --no-monitoring            Skip system monitoring service
+    --no-maintenance           Skip maintenance scripts and automation
+    --no-optimization          Skip system optimizations
+    
+    Preset Configurations:
+    --minimal                  Minimal install (Tailscale only)
+    --full                     Full install (all features enabled)
 
 EXAMPLES:
     # Interactive installation (recommended):
     sudo ./install.sh
 
-    # Non-interactive with custom configuration:
-    sudo ./install.sh --non-interactive 
-        --tailscale-key=tskey-auth-your-key-here 
-        --hostname=office-router 
-        --routes=192.168.1.0/24,10.0.0.0/8
+    # Minimal installation (Tailscale only):
+    sudo ./install.sh --minimal
 
-    # Interactive with some pre-configured options:
-    sudo ./install.sh --hostname=home-router --no-cockpit
+    # Full installation (all features):
+    sudo ./install.sh --full
+
+    # Custom installation with specific features:
+    sudo ./install.sh --no-casaos --no-cockpit --hostname=my-router
+
+    # Non-interactive with custom configuration:
+    sudo ./install.sh --non-interactive --minimal \\
+        --tailscale-key=tskey-auth-your-key-here \\
+        --hostname=office-router \\
+        --routes=192.168.1.0/24,10.0.0.0/8
 
 ENVIRONMENT VARIABLES:
     You can also set configuration via environment variables:
     
-    TAILSCALE_AUTH_KEY    Your Tailscale auth key
-    DEVICE_HOSTNAME       Device hostname
-    ADVERTISED_ROUTES     Comma-separated routes
-    INSTALL_COCKPIT       true/false (install Cockpit)
-    USE_EMMC             true/false (use eMMC storage)
-    INTERACTIVE_MODE     true/false (enable interactive prompts)
+    TAILSCALE_AUTH_KEY           Your Tailscale auth key
+    DEVICE_HOSTNAME              Device hostname  
+    ADVERTISED_ROUTES            Comma-separated routes
+    INSTALL_CASAOS               true/false (install CasaOS)
+    INSTALL_COCKPIT              true/false (install Cockpit)
+    USE_EMMC                     true/false (use eMMC storage)
+    ENABLE_SECURITY_HARDENING    true/false (security hardening)
+    ENABLE_MONITORING            true/false (system monitoring)
+    ENABLE_MAINTENANCE_SCRIPTS   true/false (maintenance automation)
+    ENABLE_SYSTEM_OPTIMIZATION   true/false (system optimizations)
+    INTERACTIVE_MODE             true/false (enable interactive prompts)
 
 REQUIREMENTS:
     - IGEL M250C thin client
@@ -366,12 +573,82 @@ show_system_info() {
     echo
 }
 
+# Create app-services user for running services
+create_app_user() {
+    log "=== Creating app-services User ==="
+    
+    # Create app-services user with home directory
+    if ! id "app-services" &>/dev/null; then
+        useradd -m -s /bin/bash -c "Application Services User" app-services
+        log "Created app-services user"
+        
+        # Add to necessary groups for service management
+        usermod -a -G docker app-services 2>/dev/null || true  # Will be added later when Docker is installed
+        usermod -a -G systemd-journal app-services
+        
+        # Create .ssh directory for potential key-based access
+        mkdir -p /home/app-services/.ssh
+        chmod 700 /home/app-services/.ssh
+        chown app-services:app-services /home/app-services/.ssh
+        
+        # Set up basic environment
+        cat > /home/app-services/.bashrc << 'EOF'
+# .bashrc for app-services user
+
+# Source global definitions
+if [ -f /etc/bash.bashrc ]; then
+    . /etc/bash.bashrc
+fi
+
+# User specific aliases and functions
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# Add local bin to PATH for custom scripts
+export PATH="$HOME/.local/bin:$PATH"
+
+# Tailscale status shortcut
+alias ts='tailscale status'
+
+# IGEL router management shortcuts
+alias router-status='sudo systemctl status tailscaled casaos cockpit.socket igel-monitor 2>/dev/null'
+alias router-health='sudo /usr/local/bin/igel-health-check 2>/dev/null || echo "Health check not installed"'
+
+echo "Welcome to IGEL M250C Router - app-services user"
+echo "Use 'router-status' to check service status"
+EOF
+        
+        chown app-services:app-services /home/app-services/.bashrc
+        
+        # Add app-services to sudo group with limited permissions
+        cat > /etc/sudoers.d/app-services << 'EOF'
+# Allow app-services user to manage specific services without password
+app-services ALL=(ALL) NOPASSWD: /bin/systemctl status *, /bin/systemctl start casaos, /bin/systemctl stop casaos, /bin/systemctl restart casaos
+app-services ALL=(ALL) NOPASSWD: /bin/systemctl start cockpit.socket, /bin/systemctl stop cockpit.socket, /bin/systemctl restart cockpit.socket
+app-services ALL=(ALL) NOPASSWD: /usr/bin/tailscale status, /usr/bin/tailscale ip, /usr/bin/tailscale netcheck
+app-services ALL=(ALL) NOPASSWD: /usr/local/bin/igel-*, /usr/local/bin/router-*
+app-services ALL=(ALL) NOPASSWD: /bin/cat /var/log/igel-*.log, /bin/tail /var/log/igel-*.log
+app-services ALL=(ALL) NOPASSWD: /bin/journalctl -u tailscaled, /bin/journalctl -u casaos, /bin/journalctl -u cockpit.socket
+EOF
+        
+        log "Configured sudo permissions for app-services user"
+    else
+        log "app-services user already exists, skipping creation"
+    fi
+}
+
 # Update system packages
 update_system() {
     log "=== Updating System Packages ==="
     apt update
     apt upgrade -y
+    
+    # Install essential system utilities for minimal Debian
     apt install -y \
+        sudo \
+        nano \
+        vim-tiny \
         curl \
         wget \
         gnupg \
@@ -379,12 +656,23 @@ update_system() {
         ca-certificates \
         software-properties-common \
         systemd \
+        systemd-timesyncd \
         iptables \
+        iptables-persistent \
         ufw \
+        fail2ban \
         htop \
-        nano \
+        tree \
+        less \
         git \
         unzip \
+        zip \
+        rsync \
+        cron \
+        logrotate \
+        openssh-server \
+        openssh-client \
+        dbus \
         network-manager \
         modemmanager \
         usb-modeswitch \
@@ -393,8 +681,67 @@ update_system() {
         wpasupplicant \
         rfkill \
         iw \
-        network-manager-config-connectivity-debian
-    log "System packages updated successfully"
+        network-manager-config-connectivity-debian \
+        python3 \
+        python3-pip \
+        python3-venv \
+        build-essential \
+        pkg-config \
+        lsb-release \
+        procps \
+        psmisc \
+        file \
+        findutils \
+        grep \
+        sed \
+        awk \
+        bc \
+        jq
+    
+    # Install Docker prerequisites
+    apt install -y \
+        apt-transport-https \
+        ca-certificates \
+        gnupg \
+        lsb-release
+    
+    # Add Docker's official GPG key and repository for CasaOS
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update again and install Docker
+    apt update
+    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    
+    # Start and enable Docker
+    systemctl enable docker
+    systemctl start docker
+    
+    # Add app-services user to docker group
+    usermod -a -G docker app-services
+    
+    # Configure SSH for security
+    if [[ -f /etc/ssh/sshd_config ]]; then
+        # Backup original SSH config
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)
+        
+        # Basic SSH hardening
+        sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
+        sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+        
+        # Allow app-services user SSH access
+        echo "AllowUsers root app-services" >> /etc/ssh/sshd_config
+        
+        systemctl restart ssh
+    fi
+    
+    # Enable time synchronization
+    systemctl enable systemd-timesyncd
+    systemctl start systemd-timesyncd
+    
+    log "System packages updated and essential services configured"
 }
 
 # Configure IP forwarding
@@ -459,10 +806,386 @@ install_tailscale() {
     log "Tailscale installed successfully"
 }
 
+# Install Headscale server
+install_headscale() {
+    if [[ "$INSTALL_HEADSCALE" != "true" ]]; then
+        log "Headscale installation disabled, skipping..."
+        return
+    fi
+
+    log "=== Installing Headscale Server ==="
+    
+    # Create headscale user
+    useradd -r -s /bin/false -d /var/lib/headscale headscale || true
+    
+    # Create directories
+    mkdir -p /etc/headscale
+    mkdir -p /var/lib/headscale
+    mkdir -p /var/log/headscale
+    chown headscale:headscale /var/lib/headscale /var/log/headscale
+    
+    # Download latest Headscale binary
+    log "Downloading Headscale binary..."
+    HEADSCALE_VERSION=$(curl -s https://api.github.com/repos/juanfont/headscale/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    HEADSCALE_URL="https://github.com/juanfont/headscale/releases/download/${HEADSCALE_VERSION}/headscale_${HEADSCALE_VERSION#v}_linux_amd64"
+    
+    curl -fsSL "$HEADSCALE_URL" -o /usr/local/bin/headscale
+    chmod +x /usr/local/bin/headscale
+    
+    # Create Headscale configuration
+    log "Configuring Headscale..."
+    cat > /etc/headscale/config.yaml << EOF
+# Headscale configuration for IGEL M250C Router
+server_url: http://${HEADSCALE_DOMAIN}:${HEADSCALE_LISTEN_PORT}
+listen_addr: 0.0.0.0:${HEADSCALE_LISTEN_PORT}
+metrics_listen_addr: 127.0.0.1:9090
+
+# Database
+db_type: sqlite3
+db_path: /var/lib/headscale/db.sqlite
+
+# TLS disabled for internal use
+tls_cert_path: ""
+tls_key_path: ""
+
+# Network settings
+ip_prefixes:
+  - fd7a:115c:a1e0::/48
+  - 100.64.0.0/10
+
+# DNS settings
+dns_config:
+  override_local_dns: true
+  nameservers:
+    - 1.1.1.1
+    - 8.8.8.8
+  domains: []
+  magic_dns: true
+  base_domain: ${HEADSCALE_DOMAIN}
+
+# Logging
+log_level: info
+
+# DERP (NAT traversal) - use Tailscale's DERP servers
+derp:
+  server:
+    enabled: false
+
+# Policy and ACLs
+policy:
+  path: /etc/headscale/acl.hujson
+
+# Unix socket for CLI
+unix_socket: /var/run/headscale/headscale.sock
+
+# Ephemeral nodes
+ephemeral_node_inactivity_timeout: 30m
+
+# Node update check interval
+node_update_check_interval: 10s
+EOF
+
+    # Create ACL policy file
+    cat > /etc/headscale/acl.hujson << 'EOF'
+{
+  // Default ACL for IGEL Router - Allow all traffic
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["*"],
+      "dst": ["*:*"]
+    }
+  ],
+  
+  // Tags for organizing devices
+  "tagOwners": {
+    "tag:router": ["autogroup:admin"],
+    "tag:client": ["autogroup:admin"],
+    "tag:server": ["autogroup:admin"]
+  },
+  
+  // Advertised routes - matches router configuration
+  "autoApprovers": {
+    "routes": {
+      "192.168.0.0/16": ["tag:router"],
+      "10.0.0.0/8": ["tag:router"],
+      "172.16.0.0/12": ["tag:router"]
+    },
+    "exitNode": ["tag:router"]
+  }
+}
+EOF
+
+    # Create systemd service
+    cat > /etc/systemd/system/headscale.service << 'EOF'
+[Unit]
+Description=Headscale VPN coordination server
+Documentation=https://headscale.net
+After=syslog.target
+After=network.target
+
+[Service]
+Type=simple
+User=headscale
+Group=headscale
+ExecStart=/usr/local/bin/headscale serve
+ExecReload=/bin/kill -HUP $MAINPID
+WorkingDirectory=/var/lib/headscale
+ReadWritePaths=/var/lib/headscale /var/log/headscale
+TimeoutStopSec=5
+KillMode=mixed
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create runtime directory for socket
+    mkdir -p /var/run/headscale
+    chown headscale:headscale /var/run/headscale
+    
+    # Enable and start Headscale
+    systemctl daemon-reload
+    systemctl enable headscale
+    systemctl start headscale
+    
+    # Wait for service to start
+    sleep 5
+    
+    # Create initial namespace/user
+    log "Creating default namespace..."
+    /usr/local/bin/headscale namespaces create default || true
+    
+    # Add app-services user permissions for headscale commands
+    cat >> /etc/sudoers.d/app-services << 'EOF'
+
+# Headscale management
+app-services ALL=(ALL) NOPASSWD: /usr/local/bin/headscale *
+app-services ALL=(ALL) NOPASSWD: /bin/systemctl status headscale, /bin/systemctl restart headscale
+app-services ALL=(ALL) NOPASSWD: /bin/journalctl -u headscale
+EOF
+
+    log "Headscale server installed and started"
+    log "Headscale will be available at: http://${HEADSCALE_DOMAIN}:${HEADSCALE_LISTEN_PORT}"
+    log "Use 'headscale' command to manage users and devices"
+}
+
+# Install Headplane web UI
+install_headplane() {
+    if [[ "$INSTALL_HEADPLANE" != "true" || "$INSTALL_HEADSCALE" != "true" ]]; then
+        log "Headplane installation disabled or Headscale not installed, skipping..."
+        return
+    fi
+
+    log "=== Installing Headplane Web UI ==="
+    
+    # Headplane runs as a Docker container, so ensure Docker is available
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "Docker is required for Headplane but not installed"
+        return
+    fi
+    
+    # Create Headplane data directory
+    mkdir -p /var/lib/headplane
+    chown app-services:app-services /var/lib/headplane
+    
+    # Create Headplane Docker Compose configuration
+    cat > /var/lib/headplane/docker-compose.yml << EOF
+version: '3.8'
+
+services:
+  headplane:
+    image: ghcr.io/tale/headplane:latest
+    container_name: headplane
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - HEADSCALE_URL=http://localhost:${HEADSCALE_LISTEN_PORT}
+      - HEADSCALE_API_KEY_FILE=/data/headscale_api_key
+    volumes:
+      - /var/lib/headplane:/data
+      - /var/run/headscale:/var/run/headscale:ro
+    networks:
+      - headplane-network
+    depends_on:
+      - headscale-proxy
+
+  headscale-proxy:
+    image: nginx:alpine
+    container_name: headscale-proxy
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - /var/lib/headplane/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - headplane-network
+
+networks:
+  headplane-network:
+    driver: bridge
+EOF
+
+    # Create nginx configuration for Headscale proxy
+    cat > /var/lib/headplane/nginx.conf << EOF
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream headscale {
+        server host.docker.internal:${HEADSCALE_LISTEN_PORT};
+    }
+
+    server {
+        listen 80;
+        
+        location / {
+            proxy_pass http://headscale;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+}
+EOF
+
+    # Generate API key for Headplane
+    log "Generating Headscale API key for Headplane..."
+    HEADSCALE_API_KEY=$(/usr/local/bin/headscale apikeys create --expiration 87600h 2>/dev/null | grep "^[a-zA-Z0-9]" || echo "")
+    
+    if [[ -n "$HEADSCALE_API_KEY" ]]; then
+        echo "$HEADSCALE_API_KEY" > /var/lib/headplane/headscale_api_key
+        chown app-services:app-services /var/lib/headplane/headscale_api_key
+        chmod 600 /var/lib/headplane/headscale_api_key
+    else
+        log_warning "Failed to generate Headscale API key. Headplane may not work properly."
+        echo "manual_setup_required" > /var/lib/headplane/headscale_api_key
+    fi
+    
+    # Create systemd service for Headplane
+    cat > /etc/systemd/system/headplane.service << 'EOF'
+[Unit]
+Description=Headplane Web UI
+Requires=docker.service headscale.service
+After=docker.service headscale.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/var/lib/headplane
+ExecStart=/usr/bin/docker-compose up -d
+ExecStop=/usr/bin/docker-compose down
+User=app-services
+Group=app-services
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Start Headplane
+    systemctl daemon-reload
+    systemctl enable headplane
+    
+    # Change to headplane directory and start
+    cd /var/lib/headplane
+    docker-compose up -d
+    
+    log "Headplane web UI installed"
+    log "Headplane will be available at: http://${HEADSCALE_DOMAIN}:3001"
+    log "Headscale API proxy at: http://${HEADSCALE_DOMAIN}:8081"
+}
+
+# Install IGEL Dashboard
+install_dashboard() {
+    if [[ "$INSTALL_DASHBOARD" != "true" ]]; then
+        log "Dashboard installation disabled, skipping..."
+        return
+    fi
+
+    log "=== Installing IGEL M250C Dashboard ==="
+    
+    # Install Python and dependencies
+    apt-get update
+    apt-get install -y python3 python3-pip python3-venv
+    
+    # Copy dashboard files to system location
+    local dashboard_dir="/opt/igel-setup/web-dashboard"
+    
+    if [[ ! -d "$dashboard_dir" ]]; then
+        log_error "Dashboard files not found at $dashboard_dir"
+        return 1
+    fi
+    
+    # Make setup script executable
+    chmod +x "$dashboard_dir/setup-dashboard.sh"
+    
+    # Run dashboard setup
+    log "Setting up dashboard environment..."
+    cd "$dashboard_dir"
+    ./setup-dashboard.sh setup
+    
+    # Add dashboard to firewall
+    ufw allow "$DASHBOARD_PORT"
+    
+    log "IGEL Dashboard installed successfully"
+    log "Dashboard will be available at: http://$(hostname -I | awk '{print $1}'):$DASHBOARD_PORT"
+    log "Default credentials: admin/admin123 and user/user123"
+    log "Please change these default passwords!"
+}
+
 # Configure Tailscale
 configure_tailscale() {
     log "=== Configuring Tailscale ==="
     
+    # Check if we're using Headscale instead of Tailscale cloud
+    if [[ "$INSTALL_HEADSCALE" == "true" ]] && systemctl is-active --quiet headscale; then
+        log "Headscale detected, configuring for local server..."
+        
+        # Generate a pre-auth key for this node
+        local namespace="default"
+        local preauth_key
+        
+        # Create namespace if it doesn't exist
+        headscale namespaces create "$namespace" 2>/dev/null || true
+        
+        # Generate pre-auth key
+        preauth_key=$(headscale --user "$namespace" preauthkeys create --reusable --expiration 1h)
+        
+        if [[ -n "$preauth_key" ]]; then
+            local routes="${ADVERTISED_ROUTES:-192.168.0.0/16,10.0.0.0/8,172.16.0.0/12}"
+            local hostname="${DEVICE_HOSTNAME:-igel-m250c-router}"
+            local headscale_url="http://localhost:${HEADSCALE_LISTEN_PORT:-8080}"
+            
+            log "Connecting to Headscale server at $headscale_url..."
+            
+            if tailscale up --login-server="$headscale_url" \
+                --authkey="$preauth_key" \
+                --advertise-routes="$routes" \
+                --advertise-exit-node \
+                --accept-routes \
+                --hostname="$hostname"; then
+                log "✓ Connected to Headscale server successfully!"
+                log "  Hostname: $hostname"
+                log "  Advertised routes: $routes"
+                log "  Headscale server: $headscale_url"
+            else
+                log_error "Failed to connect to Headscale server"
+                log_warning "You can manually connect later with:"
+                log "tailscale up --login-server=$headscale_url --advertise-routes=$routes --advertise-exit-node --accept-routes --hostname=$hostname"
+            fi
+        else
+            log_error "Failed to generate Headscale pre-auth key"
+            log_warning "Manual configuration required for Headscale"
+        fi
+        
+        log "Headscale configuration completed"
+        return
+    fi
+    
+    # Standard Tailscale cloud configuration
     # Prompt for Tailscale auth key if not provided
     if [[ -z "$TAILSCALE_AUTH_KEY" ]]; then
         echo
@@ -603,15 +1326,62 @@ configure_emmc() {
 install_casaos() {
     log "=== Installing CasaOS ==="
     
+    # Ensure Docker is running and app-services user is in docker group
+    systemctl enable docker
+    systemctl start docker
+    
     # Download and run CasaOS install script
     curl -fsSL https://get.casaos.io | bash
+    
+    # Configure CasaOS to run with app-services user context where appropriate
+    # CasaOS runs as root but we'll create a service directory for app-services
+    mkdir -p /home/app-services/casaos-data
+    chown -R app-services:app-services /home/app-services/casaos-data
+    
+    # Create a convenience script for app-services user to manage containers
+    cat > /home/app-services/.local/bin/casa-manage << 'EOF'
+#!/bin/bash
+# CasaOS container management helper for app-services user
+
+case "$1" in
+    "status")
+        echo "=== CasaOS Service Status ==="
+        sudo systemctl status casaos --no-pager
+        echo
+        echo "=== Docker Containers ==="
+        docker ps -a
+        ;;
+    "logs")
+        echo "=== CasaOS Logs ==="
+        sudo journalctl -u casaos -n 50 --no-pager
+        ;;
+    "restart")
+        echo "Restarting CasaOS..."
+        sudo systemctl restart casaos
+        ;;
+    *)
+        echo "Usage: casa-manage {status|logs|restart}"
+        echo "  status  - Show CasaOS and container status"
+        echo "  logs    - Show CasaOS service logs"
+        echo "  restart - Restart CasaOS service"
+        ;;
+esac
+EOF
+    
+    mkdir -p /home/app-services/.local/bin
+    chown app-services:app-services /home/app-services/.local/bin/casa-manage
+    chmod +x /home/app-services/.local/bin/casa-manage
     
     # Enable and start CasaOS
     systemctl enable casaos
     systemctl start casaos
     
+    # Wait a moment for CasaOS to initialize
+    sleep 10
+    
     log "CasaOS installed successfully"
     log "CasaOS will be available at: http://$(hostname -I | awk '{print $1}'):80"
+    log "app-services user can manage containers with: casa-manage status"
 }
 
 # Install Cockpit (optional)
@@ -649,6 +1419,19 @@ configure_firewall() {
     # Allow Tailscale
     ufw allow in on tailscale0
     
+    # Allow Headscale ports if installed
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+        ufw allow "${HEADSCALE_LISTEN_PORT:-8080}"
+        log "Allowed Headscale port ${HEADSCALE_LISTEN_PORT:-8080}"
+    fi
+    
+    # Allow Headplane ports if installed
+    if [[ "$INSTALL_HEADPLANE" == "true" ]]; then
+        ufw allow 3001
+        ufw allow 8081
+        log "Allowed Headplane ports 3001 and 8081"
+    fi
+    
     # Allow CasaOS
     ufw allow 80
     ufw allow 443
@@ -656,6 +1439,12 @@ configure_firewall() {
     # Allow Cockpit if installed
     if [[ "$INSTALL_COCKPIT" == "true" ]]; then
         ufw allow 9090
+    fi
+    
+    # Allow Dashboard if installed
+    if [[ "$INSTALL_DASHBOARD" == "true" ]]; then
+        ufw allow "$DASHBOARD_PORT"
+        log "Allowed Dashboard port $DASHBOARD_PORT"
     fi
     
     log "Firewall configured"
@@ -810,11 +1599,327 @@ Web Interfaces:
   CasaOS:   http://$(hostname -I | awk '{print $1}')
 $([ "$INSTALL_COCKPIT" = "true" ] && echo "  Cockpit:  https://$(hostname -I | awk '{print $1}'):9090")
 
+Users:
+  root         - Full system administration
+  app-services - Service management and monitoring
+
+For app-services user:
+  casa-manage status   - Check CasaOS and containers
+  router-status        - Check all router services
+  router-health        - Run health diagnostics
+  update-console       - Refresh physical console login screen
+
 For full command reference: cat /opt/igel-setup/QUICK_REFERENCE.md
 Installation logs: tail -f /var/log/igel-setup.log
 
 EOF
     log "Login message (MOTD) configured for headless access"
+    
+    # Create dynamic login screen for physical console access
+    cat > /usr/local/bin/update-login-screen << 'EOF'
+#!/bin/bash
+# Dynamic login screen updater for IGEL M250C
+
+# Get current IP address
+IP_ADDRESS=$(hostname -I | awk '{print $1}' || echo "No IP")
+TAILSCALE_IP=$(tailscale ip 2>/dev/null || echo "Not connected")
+
+# Check which services are installed and running
+CASAOS_STATUS=""
+COCKPIT_STATUS=""
+HEADSCALE_STATUS=""
+HEADPLANE_STATUS=""
+DASHBOARD_STATUS=""
+
+if systemctl is-enabled casaos >/dev/null 2>&1; then
+    if systemctl is-active --quiet casaos; then
+        CASAOS_STATUS="✅ CasaOS:    http://$IP_ADDRESS"
+    else
+        CASAOS_STATUS="❌ CasaOS:    http://$IP_ADDRESS (service stopped)"
+    fi
+fi
+
+if systemctl is-enabled cockpit.socket >/dev/null 2>&1; then
+    if systemctl is-active --quiet cockpit.socket; then
+        COCKPIT_STATUS="✅ Cockpit:   https://$IP_ADDRESS:9090"
+    else
+        COCKPIT_STATUS="❌ Cockpit:   https://$IP_ADDRESS:9090 (service stopped)"
+    fi
+fi
+
+if systemctl is-enabled headscale >/dev/null 2>&1; then
+    if systemctl is-active --quiet headscale; then
+        HEADSCALE_STATUS="✅ Headscale: http://$IP_ADDRESS:$(grep listen_addr /etc/headscale/config.yaml | grep -o '[0-9]*' | tail -1 2>/dev/null || echo '8080')"
+    else
+        HEADSCALE_STATUS="❌ Headscale: http://$IP_ADDRESS:$(grep listen_addr /etc/headscale/config.yaml | grep -o '[0-9]*' | tail -1 2>/dev/null || echo '8080') (service stopped)"
+    fi
+fi
+
+if systemctl is-enabled headplane >/dev/null 2>&1; then
+    if systemctl is-active --quiet headplane; then
+        HEADPLANE_STATUS="✅ Headplane: http://$IP_ADDRESS:3001"
+    else
+        HEADPLANE_STATUS="❌ Headplane: http://$IP_ADDRESS:3001 (service stopped)"
+    fi
+fi
+
+if systemctl is-enabled igel-dashboard >/dev/null 2>&1; then
+    DASHBOARD_PORT=$(grep DASHBOARD_PORT /etc/environment 2>/dev/null | cut -d'=' -f2 || echo '8088')
+    if systemctl is-active --quiet igel-dashboard; then
+        DASHBOARD_STATUS="✅ Dashboard: http://$IP_ADDRESS:$DASHBOARD_PORT"
+    else
+        DASHBOARD_STATUS="❌ Dashboard: http://$IP_ADDRESS:$DASHBOARD_PORT (service stopped)"
+    fi
+fi
+
+# Generate the login screen
+cat > /etc/issue << EOL
+╔═══════════════════════════════════════════════════════════════════════╗
+║                    IGEL M250C Tailscale Router                       ║
+║                        Physical Console                               ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+🌐 Network Information:
+   Local IP:     $IP_ADDRESS
+   Tailscale IP: $TAILSCALE_IP
+   Hostname:     $(hostname)
+
+🔧 Web Interfaces:
+$([ -n "$CASAOS_STATUS" ] && echo "   $CASAOS_STATUS")
+$([ -n "$COCKPIT_STATUS" ] && echo "   $COCKPIT_STATUS")
+$([ -n "$HEADSCALE_STATUS" ] && echo "   $HEADSCALE_STATUS")
+$([ -n "$HEADPLANE_STATUS" ] && echo "   $HEADPLANE_STATUS")
+$([ -n "$DASHBOARD_STATUS" ] && echo "   $DASHBOARD_STATUS")
+$([ -n "$HEADPLANE_STATUS" ] && echo "   $HEADPLANE_STATUS")
+
+👤 Available Users:
+   root         - Full system administration
+   app-services - Service management and monitoring
+
+📊 System Status: $(uptime -p)
+💾 Disk Usage:   $(df -h / | tail -1 | awk '{print $5}')
+🧠 Memory:       $(free -h | grep '^Mem:' | awk '{print $3"/"$2}')
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EOL
+
+# Also update /etc/issue.net for network logins
+cat > /etc/issue.net << EOL
+IGEL M250C Tailscale Router
+
+Network Information:
+  Local IP:     $IP_ADDRESS
+  Tailscale IP: $TAILSCALE_IP
+  Hostname:     $(hostname)
+
+Web Interfaces:
+$([ -n "$CASAOS_STATUS" ] && echo "  $CASAOS_STATUS" | sed 's/✅/[Active]/' | sed 's/❌/[Stopped]/')
+$([ -n "$COCKPIT_STATUS" ] && echo "  $COCKPIT_STATUS" | sed 's/✅/[Active]/' | sed 's/❌/[Stopped]/')
+$([ -n "$HEADSCALE_STATUS" ] && echo "  $HEADSCALE_STATUS" | sed 's/✅/[Active]/' | sed 's/❌/[Stopped]/')
+$([ -n "$HEADPLANE_STATUS" ] && echo "  $HEADPLANE_STATUS" | sed 's/✅/[Active]/' | sed 's/❌/[Stopped]/')
+$([ -n "$DASHBOARD_STATUS" ] && echo "  $DASHBOARD_STATUS" | sed 's/✅/[Active]/' | sed 's/❌/[Stopped]/')
+
+Users: root, app-services
+
+EOL
+EOF
+
+    chmod +x /usr/local/bin/update-login-screen
+    
+    # Run the script once to set initial login screen
+    /usr/local/bin/update-login-screen
+    
+    # Create systemd service to update login screen on network changes
+    cat > /etc/systemd/system/igel-login-screen.service << 'EOF'
+[Unit]
+Description=IGEL Login Screen Updater
+After=network.target tailscaled.service casaos.service cockpit.socket
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update-login-screen
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create timer to update login screen periodically
+    cat > /etc/systemd/system/igel-login-screen.timer << 'EOF'
+[Unit]
+Description=Update IGEL Login Screen every 5 minutes
+Requires=igel-login-screen.service
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=5min
+AccuracySec=10sec
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    # Create NetworkManager dispatcher script for immediate IP change detection
+    cat > /etc/NetworkManager/dispatcher.d/99-update-login-screen << 'EOF'
+#!/bin/bash
+# Update login screen when network interfaces change
+
+case "$2" in
+    up|down|dhcp4-change|dhcp6-change)
+        # Wait a moment for network to stabilize
+        sleep 2
+        /usr/local/bin/update-login-screen
+        ;;
+esac
+EOF
+
+    chmod +x /etc/NetworkManager/dispatcher.d/99-update-login-screen
+
+    # Enable and start the login screen update service
+    systemctl daemon-reload
+    systemctl enable igel-login-screen.service
+    systemctl enable igel-login-screen.timer
+    systemctl start igel-login-screen.service
+    systemctl start igel-login-screen.timer
+    
+    # Also add a hook for when Tailscale status changes
+    mkdir -p /etc/systemd/system/tailscaled.service.d
+    cat > /etc/systemd/system/tailscaled.service.d/update-login-screen.conf << 'EOF'
+[Service]
+ExecStartPost=/bin/bash -c 'sleep 5 && /usr/local/bin/update-login-screen'
+ExecStopPost=/usr/local/bin/update-login-screen
+EOF
+
+    log "Dynamic login screen configured for physical console access"
+    log "Login screen will update automatically on network changes"
+    
+    # Create convenience scripts for app-services user
+    mkdir -p /home/app-services/.local/bin
+    
+    # Router status script
+    cat > /home/app-services/.local/bin/router-status << 'EOF'
+#!/bin/bash
+# Router service status check for app-services user
+
+echo "=== IGEL M250C Router Status ==="
+echo "Date: $(date)"
+echo "Uptime: $(uptime -p)"
+echo
+
+echo "=== Core Services ==="
+echo -n "Tailscale: "
+if sudo systemctl is-active --quiet tailscaled; then
+    echo "✅ Active"
+    echo "  IP: $(tailscale ip 2>/dev/null || echo 'Not connected')"
+else
+    echo "❌ Inactive"
+fi
+
+if systemctl is-active --quiet casaos &>/dev/null; then
+    echo -n "CasaOS: "
+    if sudo systemctl is-active --quiet casaos; then
+        echo "✅ Active"
+    else
+        echo "❌ Inactive"
+    fi
+fi
+
+if systemctl is-active --quiet cockpit.socket &>/dev/null; then
+    echo -n "Cockpit: "
+    if sudo systemctl is-active --quiet cockpit.socket; then
+        echo "✅ Active"
+    else
+        echo "❌ Inactive"
+    fi
+fi
+
+echo
+echo "=== System Resources ==="
+echo "Memory: $(free -h | grep '^Mem:' | awk '{print $3"/"$2" ("$5" available)"}')"
+echo "Disk: $(df -h / | tail -1 | awk '{print $3"/"$2" ("$5" used)"}')"
+
+echo
+echo "=== Network ==="
+echo "Primary IP: $(hostname -I | awk '{print $1}')"
+echo "Interfaces:"
+ip route show default | while read -r line; do
+    interface=$(echo "$line" | awk '{print $5}')
+    gateway=$(echo "$line" | awk '{print $3}')
+    echo "  • $interface → $gateway"
+done
+EOF
+
+    chmod +x /home/app-services/.local/bin/router-status
+    chown app-services:app-services /home/app-services/.local/bin/router-status
+    
+    # Router health script  
+    cat > /home/app-services/.local/bin/router-health << 'EOF'
+#!/bin/bash
+# Router health check for app-services user
+
+echo "=== IGEL M250C Router Health Check ==="
+echo "Date: $(date)"
+echo
+
+# Check if health check script exists and run it
+if [[ -x /usr/local/bin/igel-health-check ]]; then
+    sudo /usr/local/bin/igel-health-check
+else
+    echo "=== Basic Health Check ==="
+    
+    # Check disk space
+    disk_usage=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+    if [[ $disk_usage -gt 85 ]]; then
+        echo "⚠️  Disk usage high: ${disk_usage}%"
+    else
+        echo "✅ Disk usage OK: ${disk_usage}%"
+    fi
+    
+    # Check memory
+    mem_usage=$(free | grep Mem | awk '{printf "%.0f", $3/$2 * 100.0}')
+    if [[ $mem_usage -gt 90 ]]; then
+        echo "⚠️  Memory usage high: ${mem_usage}%"
+    else
+        echo "✅ Memory usage OK: ${mem_usage}%"
+    fi
+    
+    # Check Tailscale connectivity
+    if tailscale status >/dev/null 2>&1; then
+        echo "✅ Tailscale connected"
+    else
+        echo "❌ Tailscale not connected"
+    fi
+    
+    # Check internet connectivity
+    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        echo "✅ Internet connectivity OK"
+    else
+        echo "❌ No internet connectivity"
+    fi
+fi
+EOF
+
+    chmod +x /home/app-services/.local/bin/router-health
+    chown app-services:app-services /home/app-services/.local/bin/router-health
+    
+    # Update ownership of the entire .local directory
+    chown -R app-services:app-services /home/app-services/.local
+    
+    # Add manual login screen update command to both users
+    cat > /usr/local/bin/update-console << 'EOF'
+#!/bin/bash
+# Manual login screen update command
+echo "Updating console login screen..."
+/usr/local/bin/update-login-screen
+echo "✅ Console login screen updated with current network information"
+EOF
+    
+    chmod +x /usr/local/bin/update-console
+    
+    # Add to app-services sudo permissions
+    echo "app-services ALL=(ALL) NOPASSWD: /usr/local/bin/update-console, /usr/local/bin/update-login-screen" >> /etc/sudoers.d/app-services
     
     # Set up cron jobs for automated maintenance
     cat > /etc/cron.d/igel-maintenance << 'EOF'
@@ -868,10 +1973,14 @@ show_final_status() {
     fi
     
     # CasaOS
-    if systemctl is-active --quiet casaos; then
-        echo -e "  ✅ CasaOS: ${GREEN}Active${NC} → http://$ip_address"
+    if [[ "$INSTALL_CASAOS" == "true" ]]; then
+        if systemctl is-active --quiet casaos; then
+            echo -e "  ✅ CasaOS: ${GREEN}Active${NC} → http://$ip_address"
+        else
+            echo -e "  ❌ CasaOS: ${RED}Inactive${NC}"
+        fi
     else
-        echo -e "  ❌ CasaOS: ${RED}Inactive${NC}"
+        echo "  ℹ️  CasaOS: Skipped (not installed)"
     fi
     
     # Cockpit
@@ -886,10 +1995,14 @@ show_final_status() {
     fi
     
     # Monitoring
-    if systemctl is-active --quiet igel-monitor; then
-        echo -e "  ✅ System Monitor: ${GREEN}Active${NC}"
+    if [[ "$ENABLE_MONITORING" == "true" ]]; then
+        if systemctl is-active --quiet igel-monitor; then
+            echo -e "  ✅ System Monitor: ${GREEN}Active${NC}"
+        else
+            echo -e "  ❌ System Monitor: ${RED}Inactive${NC}"
+        fi
     else
-        echo -e "  ❌ System Monitor: ${RED}Inactive${NC}"
+        echo "  ℹ️  System Monitor: Skipped (not enabled)"
     fi
     
     echo
@@ -960,13 +2073,38 @@ show_final_status() {
     # Final message
     echo -e "${GREEN}🚀 Your IGEL M250C router is ready!${NC}"
     echo
-    echo "Next steps:"
-    echo "  • Access CasaOS web interface: http://$(hostname -I | awk '{print $1}')"
-    if [[ "$INSTALL_COCKPIT" == "true" ]]; then
-        echo "  • Access Cockpit management: https://$(hostname -I | awk '{print $1}'):9090"
+    echo "Access Information:"
+    echo "  • Physical Console: Direct keyboard/monitor access shows IP and web URLs"
+    echo "  • SSH as root: ssh root@$(hostname -I | awk '{print $1}')"
+    echo "  • SSH as app-services: ssh app-services@$(hostname -I | awk '{print $1}')"
+    if [[ "$INSTALL_CASAOS" == "true" ]]; then
+        echo "  • CasaOS web interface: http://$(hostname -I | awk '{print $1}')"
     fi
-    echo "  • Run 'igel-health-check' anytime to verify system status"
-    echo "  • Check QUICK_REFERENCE.md for complete command list"
+    if [[ "$INSTALL_COCKPIT" == "true" ]]; then
+        echo "  • Cockpit management: https://$(hostname -I | awk '{print $1}'):9090"
+    fi
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+        echo "  • Headscale server: http://$(hostname -I | awk '{print $1}'):${HEADSCALE_LISTEN_PORT:-8080}"
+    fi
+    if [[ "$INSTALL_HEADPLANE" == "true" ]]; then
+        echo "  • Headplane web UI: http://$(hostname -I | awk '{print $1}'):3001"
+        echo "  • Headscale API proxy: http://$(hostname -I | awk '{print $1}'):8081"
+    fi
+    if [[ "$INSTALL_DASHBOARD" == "true" ]]; then
+        echo "  • IGEL Dashboard: http://$(hostname -I | awk '{print $1}'):$DASHBOARD_PORT"
+        echo "    Default login: admin/admin123 (change immediately!)"
+    fi
+    echo
+    echo "User Guide:"
+    echo "  • root user: Full system administration"
+    echo "  • app-services user: Service management and monitoring"
+    echo "  • Physical console: Shows current IP addresses and web interface URLs"
+    echo "  • Use 'update-console' command to manually refresh login screen"
+    if [[ "$ENABLE_MAINTENANCE_SCRIPTS" == "true" ]]; then
+        echo "  • Run 'router-status' (app-services) or 'igel-health-check' (root) for diagnostics"
+        echo "  • Check QUICK_REFERENCE.md for complete command list"
+    fi
+    echo "  • Use 'tailscale status' to verify VPN connectivity"
     echo
     echo "Configuration saved to: $LOG_FILE"
     echo "For troubleshooting: /opt/igel-setup/README.md"
@@ -976,7 +2114,9 @@ show_final_status() {
     if tailscale status >/dev/null 2>&1; then
         log "1. Configure your Tailscale admin console to approve subnet routes"
         log "2. Test connectivity from other Tailscale devices"
-        log "3. Access CasaOS web interface to install additional services"
+        if [[ "$INSTALL_CASAOS" == "true" ]]; then
+            log "3. Access CasaOS web interface to install additional services"
+        fi
         if [[ "$INSTALL_COCKPIT" == "true" ]]; then
             log "4. Use Cockpit for advanced system management"
         fi
@@ -1022,8 +2162,58 @@ main() {
             --no-cockpit)
                 INSTALL_COCKPIT="false"
                 ;;
+            --no-casaos)
+                INSTALL_CASAOS="false"
+                ;;
             --no-emmc)
                 USE_EMMC="false"
+                ;;
+            --no-security)
+                ENABLE_SECURITY_HARDENING="false"
+                ;;
+            --no-monitoring)
+                ENABLE_MONITORING="false"
+                ;;
+            --no-maintenance)
+                ENABLE_MAINTENANCE_SCRIPTS="false"
+                ;;
+            --no-optimization)
+                ENABLE_SYSTEM_OPTIMIZATION="false"
+                ;;
+            --headscale)
+                INSTALL_HEADSCALE="true"
+                ;;
+            --headscale-domain=*)
+                HEADSCALE_DOMAIN="${1#*=}"
+                ;;
+            --headscale-port=*)
+                HEADSCALE_LISTEN_PORT="${1#*=}"
+                ;;
+            --headplane)
+                INSTALL_HEADPLANE="true"
+                ;;
+            --no-headscale)
+                INSTALL_HEADSCALE="false"
+                ;;
+            --minimal)
+                # Minimal installation - only Tailscale and basic system setup
+                INSTALL_COCKPIT="false"
+                INSTALL_CASAOS="false"
+                USE_EMMC="false"
+                ENABLE_SECURITY_HARDENING="false"
+                ENABLE_MONITORING="false"
+                ENABLE_MAINTENANCE_SCRIPTS="false"
+                ENABLE_SYSTEM_OPTIMIZATION="false"
+                ;;
+            --full)
+                # Full installation - enable all features
+                INSTALL_COCKPIT="true"
+                INSTALL_CASAOS="true"
+                USE_EMMC="true"
+                ENABLE_SECURITY_HARDENING="true"
+                ENABLE_MONITORING="true"
+                ENABLE_MAINTENANCE_SCRIPTS="true"
+                ENABLE_SYSTEM_OPTIMIZATION="true"
                 ;;
             *)
                 echo "Unknown option: $1"
@@ -1050,6 +2240,9 @@ main() {
     check_root
     preflight_checks
     
+    # Create app-services user first, before any installations
+    create_app_user
+    
     # Interactive configuration (unless running non-interactively)
     if [[ "$INTERACTIVE_MODE" == "true" ]]; then
         interactive_config
@@ -1059,14 +2252,54 @@ main() {
     update_system
     configure_ip_forwarding
     install_tailscale
+    
+    # Install Headscale if requested (before Tailscale configuration)
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+        install_headscale
+    fi
+    
+    # Install Headplane if requested (after Headscale)
+    if [[ "$INSTALL_HEADPLANE" == "true" ]]; then
+        if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+            install_headplane
+        else
+            log_warning "Headplane requires Headscale. Skipping Headplane installation."
+        fi
+    fi
+    
     configure_tailscale
-    configure_emmc
-    install_casaos
-    install_cockpit
+    
+    # Optional features - only install if enabled
+    if [[ "$USE_EMMC" == "true" ]]; then
+        configure_emmc
+    fi
+    
+    if [[ "$INSTALL_CASAOS" == "true" ]]; then
+        install_casaos
+    fi
+    
+    if [[ "$INSTALL_COCKPIT" == "true" ]]; then
+        install_cockpit
+    fi
+    
+    # Install Dashboard (after other web services)
+    if [[ "$INSTALL_DASHBOARD" == "true" ]]; then
+        install_dashboard
+    fi
+    
     configure_firewall
-    create_monitoring_service
-    optimize_system
-    create_maintenance_scripts
+    
+    if [[ "$ENABLE_MONITORING" == "true" ]]; then
+        create_monitoring_service
+    fi
+    
+    if [[ "$ENABLE_SYSTEM_OPTIMIZATION" == "true" ]]; then
+        optimize_system
+    fi
+    
+    if [[ "$ENABLE_MAINTENANCE_SCRIPTS" == "true" ]]; then
+        create_maintenance_scripts
+    fi
     
     # Apply security hardening if enabled
     if [[ "$ENABLE_SECURITY_HARDENING" == "true" ]]; then
@@ -1099,6 +2332,8 @@ error_cleanup() {
     systemctl stop casaos 2>/dev/null || true
     systemctl stop cockpit.socket 2>/dev/null || true
     systemctl stop igel-monitor 2>/dev/null || true
+    systemctl stop docker 2>/dev/null || true
+    systemctl stop ssh 2>/dev/null || true
     
     log_error "Installation aborted. Check logs at $LOG_FILE"
     log_error "You may need to manually clean up partial installation"
@@ -1109,27 +2344,7 @@ error_cleanup() {
 # Handle script arguments
 case "${1:-}" in
     --help|-h)
-        echo "IGEL M250C Tailscale Router Setup Script"
-        echo
-        echo "Usage: $0 [options]"
-        echo
-        echo "This script will interactively prompt for required information if not"
-        echo "provided via environment variables."
-        echo
-        echo "Environment variables:"
-        echo "  TAILSCALE_AUTH_KEY    Tailscale authentication key (optional)"
-        echo "                        If not provided, you'll be prompted to enter it"
-        echo "                        Get one from: https://login.tailscale.com/admin/settings/keys"
-        echo "  INSTALL_COCKPIT       Install Cockpit web UI (default: true)"
-        echo "  USE_EMMC             Use eMMC for swap/logs (default: true)"
-        echo
-        echo "Examples:"
-        echo "  sudo $0                                    # Interactive setup"
-        echo "  sudo TAILSCALE_AUTH_KEY='tskey-...' $0     # Automated setup"
-        echo "  sudo INSTALL_COCKPIT=false $0              # Skip Cockpit installation"
-        echo
-        echo "The script will guide you through the setup process and provide"
-        echo "clear instructions for any manual steps required."
+        show_help
         exit 0
         ;;
     *)

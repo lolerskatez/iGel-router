@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IGEL M250C Router Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='dashboard.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-router"></i> IGEL M250C Router
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#tailscale"><i class="bi bi-shield-check"></i> VPN Management</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#network"><i class="bi bi-diagram-3"></i> Network</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#system"><i class="bi bi-cpu"></i> System</a>
+                    </li>
+                </ul>
+                <span class="navbar-text">
+                    <i class="bi bi-clock"></i> <span id="current-time"></span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- System Status Overview -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-info-circle"></i> System Overview
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="bi bi-cpu"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h6>CPU Usage</h6>
+                                        <span class="stat-value" id="cpu-usage">{{ "%.1f"|format(system_info.cpu_percent or 0) }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="bi bi-memory"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h6>Memory Usage</h6>
+                                        <span class="stat-value" id="memory-usage">{{ "%.1f"|format(system_info.memory_percent or 0) }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="bi bi-hdd"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h6>Disk Usage</h6>
+                                        <span class="stat-value" id="disk-usage">{{ "%.1f"|format(system_info.disk_percent or 0) }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="bi bi-thermometer-half"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h6>Temperature</h6>
+                                        <span class="stat-value" id="temperature">
+                                            {% if system_info.temperature %}
+                                                {{ "%.1f"|format(system_info.temperature) }}°C
+                                            {% else %}
+                                                N/A
+                                            {% endif %}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <small class="text-muted">
+                                    <i class="bi bi-clock"></i> Uptime: {{ system_info.uptime or 'Unknown' }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VPN Status -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-shield-check"></i> VPN Status
+                        </h5>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="refreshVpnStatus()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Tailscale Status -->
+                        <div class="vpn-section">
+                            <h6 class="section-title">
+                                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCA5TDEzLjA5IDE1Ljc0TDEyIDIyTDEwLjkxIDE1Ljc0TDQgOUwxMC45MSA4LjI2TDEyIDJaIiBmaWxsPSIjMDA3N0ZGIi8+Cjwvc3ZnPgo=" alt="Tailscale" style="width: 20px; height: 20px;">
+                                Tailscale
+                            </h6>
+                            {% if tailscale_status.connected %}
+                                <div class="status-connected">
+                                    <span class="badge bg-success">Connected</span>
+                                    <div class="mt-2">
+                                        <strong>IP:</strong> {{ tailscale_status.self_ip }}<br>
+                                        <strong>Hostname:</strong> {{ tailscale_status.hostname }}<br>
+                                        <strong>Peers:</strong> {{ tailscale_status.peer_count }}<br>
+                                        <strong>State:</strong> {{ tailscale_status.backend_state }}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="status-disconnected">
+                                    <span class="badge bg-danger">Disconnected</span>
+                                    {% if tailscale_status.error %}
+                                        <div class="mt-2 text-danger">
+                                            <small>{{ tailscale_status.error }}</small>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Headscale Status -->
+                        {% if headscale_status.installed %}
+                        <div class="vpn-section mt-4">
+                            <h6 class="section-title">
+                                <i class="bi bi-server"></i> Headscale (Self-Hosted)
+                            </h6>
+                            {% if headscale_status.running %}
+                                <div class="status-connected">
+                                    <span class="badge bg-success">Running</span>
+                                    <div class="mt-2">
+                                        <strong>Nodes:</strong> {{ headscale_status.node_count }}<br>
+                                        <strong>Namespaces:</strong> {{ headscale_status.namespaces|length }}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <div class="status-disconnected">
+                                    <span class="badge bg-danger">Stopped</span>
+                                    {% if headscale_status.error %}
+                                        <div class="mt-2 text-danger">
+                                            <small>{{ headscale_status.error }}</small>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-gear"></i> Quick Actions
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary" onclick="toggleExitNode()">
+                                <i class="bi bi-arrow-through-heart"></i>
+                                Toggle Exit Node
+                            </button>
+                            <button class="btn btn-outline-info" onclick="showRouteManager()">
+                                <i class="bi bi-diagram-3"></i>
+                                Manage Routes
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="showKeyManager()">
+                                <i class="bi bi-key"></i>
+                                Manage Keys
+                            </button>
+                            <button class="btn btn-outline-success" onclick="refreshStatus()">
+                                <i class="bi bi-arrow-clockwise"></i>
+                                Refresh All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Panel -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-sliders"></i> Configuration
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Configuration content will be loaded here -->
+                        <div id="config-content">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Subnet Routes</h6>
+                                    <div id="subnet-routes" class="config-section">
+                                        {% if tailscale_status.advertised_routes %}
+                                            {% for route in tailscale_status.advertised_routes %}
+                                                <span class="badge bg-info me-2">{{ route }}</span>
+                                            {% endfor %}
+                                        {% else %}
+                                            <span class="text-muted">No routes advertised</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Exit Node</h6>
+                                    <div id="exit-node-status" class="config-section">
+                                        {% if tailscale_status.exit_node_enabled %}
+                                            <span class="badge bg-success">Enabled</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Disabled</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="routeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Manage Subnet Routes</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="routeForm">
+                        <div class="mb-3">
+                            <label for="routeInput" class="form-label">Advertised Routes (comma-separated CIDR)</label>
+                            <input type="text" class="form-control" id="routeInput" 
+                                   placeholder="192.168.1.0/24,10.0.0.0/8">
+                            <div class="form-text">Enter subnet routes to advertise to other Tailscale nodes</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="updateRoutes()">Update Routes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="keyModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Key Management</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <h6>Current Status</h6>
+                        <div id="keyStatus">Loading...</div>
+                    </div>
+                    <div class="mb-3">
+                        <h6>Actions</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary" onclick="generatePreAuthKey()">
+                                Generate Pre-Auth Key
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="rotateKey()">
+                                Rotate Machine Key
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>
