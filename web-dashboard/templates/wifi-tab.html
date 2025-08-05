@@ -1,0 +1,203 @@
+<!-- WiFi Management Tab Content -->
+<div class="tab-pane fade" id="wifi" role="tabpanel" aria-labelledby="wifi-tab">
+    <div class="container-fluid">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2>WiFi Management</h2>
+                <p>Manage WiFi connections, create access points, and set up gateway mode</p>
+                
+                <div id="alertContainer"></div>
+                
+                <div id="noWifiInterfaces" class="alert alert-warning" style="display: none;">
+                    <h5>No Wireless Interfaces Found</h5>
+                    <p>Your device does not appear to have any wireless network interfaces available.</p>
+                </div>
+            </div>
+        </div>
+        
+        <div id="wifiControls">
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Interface Selection
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="wifiInterface" class="form-label">Wireless Interface:</label>
+                                <select id="wifiInterface" class="form-select">
+                                    <option value="">Loading interfaces...</option>
+                                </select>
+                            </div>
+                            
+                            <div id="currentConnection">
+                                <div class="alert alert-secondary">
+                                    <p>Select an interface to view status</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Operation Mode
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex flex-wrap gap-2">
+                                <button id="scanWifi" class="btn btn-primary">
+                                    <i class="bi bi-wifi"></i> Scan Networks
+                                </button>
+                                
+                                <button id="gatewayModeBtn" class="btn btn-info">
+                                    <i class="bi bi-globe"></i> Gateway Mode (Coffee Shop)
+                                </button>
+                                
+                                <div id="apControls" style="display: none;">
+                                    <button id="startApBtn" class="btn btn-success">
+                                        <i class="bi bi-broadcast-pin"></i> Start Access Point
+                                    </button>
+                                    
+                                    <button id="stopApBtn" class="btn btn-danger">
+                                        <i class="bi bi-x-circle"></i> Stop Access Point
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Available Networks
+                        </div>
+                        <div class="card-body">
+                            <div id="wifiNetworksList">
+                                <div class="text-center text-muted py-5">
+                                    <p>Click "Scan Networks" to view available WiFi networks</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- WiFi Connection Modal -->
+    <div class="modal fade" id="wifiConnectionModal" tabindex="-1" aria-labelledby="wifiConnectionModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="wifiConnectionModalLabel">Connect to WiFi</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="wifiConnectForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="connectSsid" class="form-label">Network Name (SSID):</label>
+                            <input type="text" class="form-control" id="connectSsid" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="wifiPassword" class="form-label">Password:</label>
+                            <input type="password" class="form-control" id="wifiPassword">
+                            <div class="form-text">Leave empty for open networks</div>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="hiddenNetwork">
+                            <label class="form-check-label" for="hiddenNetwork">
+                                Hidden Network
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" id="connectWifiBtn" class="btn btn-primary">Connect</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Access Point Modal -->
+    <div class="modal fade" id="apModal" tabindex="-1" aria-labelledby="apModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="apModalLabel">Create WiFi Access Point</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="apForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="apInterface" class="form-label">Interface:</label>
+                            <select id="apInterface" class="form-select" required></select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="apSsid" class="form-label">Network Name (SSID):</label>
+                            <input type="text" class="form-control" id="apSsid" value="TailSentry" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="apPassword" class="form-label">Password:</label>
+                            <input type="password" class="form-control" id="apPassword" minlength="8" required>
+                            <div class="form-text">Minimum 8 characters</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="apChannel" class="form-label">Channel:</label>
+                            <select id="apChannel" class="form-select">
+                                <option value="1">1 (2.412 GHz)</option>
+                                <option value="6" selected>6 (2.437 GHz)</option>
+                                <option value="11">11 (2.462 GHz)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" id="startApSubmitBtn" class="btn btn-success">Start Access Point</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Gateway Mode Modal -->
+    <div class="modal fade" id="gatewayModal" tabindex="-1" aria-labelledby="gatewayModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title" id="gatewayModalLabel">Gateway Mode (Coffee Shop)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="gatewayForm">
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <p><strong>Gateway Mode:</strong> Connect to external WiFi (like a coffee shop or apartment) and route Tailscale traffic through it.</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="gatewayInterface" class="form-label">Interface:</label>
+                            <select id="gatewayInterface" class="form-select" required></select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="gatewaySsid" class="form-label">External WiFi Name:</label>
+                            <input type="text" class="form-control" id="gatewaySsid" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="gatewayPassword" class="form-label">WiFi Password:</label>
+                            <input type="password" class="form-control" id="gatewayPassword">
+                            <div class="form-text">Leave empty for open networks</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" id="gatewaySubmitBtn" class="btn btn-info">Enable Gateway Mode</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

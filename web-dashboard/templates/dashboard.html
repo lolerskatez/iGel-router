@@ -29,7 +29,13 @@
                         <a class="nav-link" href="#network"><i class="bi bi-diagram-3"></i> Network</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#wifi"><i class="bi bi-wifi"></i> WiFi</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#system"><i class="bi bi-cpu"></i> System</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#configuration"><i class="bi bi-gear"></i> Configuration</a>
                     </li>
                 </ul>
                 <span class="navbar-text">
@@ -261,6 +267,116 @@
         </div>
     </div>
 
+    <!-- Configuration Section -->
+    <div id="configuration" class="section-content" style="display: none;">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-gear"></i> System Configuration & Features
+                        </h5>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="refreshConfiguration()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="configuration-content">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading configuration...</span>
+                                </div>
+                                <p class="mt-2">Loading system configuration...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Web Interfaces -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-globe"></i> Web Management Interfaces
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="web-interfaces-content">
+                            <div class="row">
+                                <div class="col-md-6 col-lg-3 mb-3">
+                                    <div class="card h-100 border-primary">
+                                        <div class="card-body text-center">
+                                            <div class="mb-2">
+                                                <i class="bi bi-speedometer2 text-primary" style="font-size: 2rem;"></i>
+                                            </div>
+                                            <h6 class="card-title">IGEL Dashboard</h6>
+                                            <p class="card-text text-muted small">Custom router management interface</p>
+                                            <span class="badge bg-success">Current Interface</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 col-lg-3 mb-3">
+                                    <div class="card h-100" id="casaos-card">
+                                        <div class="card-body text-center">
+                                            <div class="mb-2">
+                                                <i class="bi bi-box text-info" style="font-size: 2rem;"></i>
+                                            </div>
+                                            <h6 class="card-title">CasaOS</h6>
+                                            <p class="card-text text-muted small">Docker container management</p>
+                                            <span class="badge bg-secondary" id="casaos-status">Loading...</span>
+                                            <div class="mt-2">
+                                                <button class="btn btn-sm btn-outline-primary" id="casaos-link" style="display: none;">
+                                                    <i class="bi bi-box-arrow-up-right"></i> Open
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 col-lg-3 mb-3">
+                                    <div class="card h-100" id="cockpit-card">
+                                        <div class="card-body text-center">
+                                            <div class="mb-2">
+                                                <i class="bi bi-cpu text-warning" style="font-size: 2rem;"></i>
+                                            </div>
+                                            <h6 class="card-title">Cockpit</h6>
+                                            <p class="card-text text-muted small">Advanced system management</p>
+                                            <span class="badge bg-secondary" id="cockpit-status">Loading...</span>
+                                            <div class="mt-2">
+                                                <button class="btn btn-sm btn-outline-primary" id="cockpit-link" style="display: none;">
+                                                    <i class="bi bi-box-arrow-up-right"></i> Open
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 col-lg-3 mb-3">
+                                    <div class="card h-100" id="headplane-card">
+                                        <div class="card-body text-center">
+                                            <div class="mb-2">
+                                                <i class="bi bi-diagram-3 text-success" style="font-size: 2rem;"></i>
+                                            </div>
+                                            <h6 class="card-title">Headplane</h6>
+                                            <p class="card-text text-muted small">Headscale web UI</p>
+                                            <span class="badge bg-secondary" id="headplane-status">Loading...</span>
+                                            <div class="mt-2">
+                                                <button class="btn btn-sm btn-outline-primary" id="headplane-link" style="display: none;">
+                                                    <i class="bi bi-box-arrow-up-right"></i> Open
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modals -->
     <div class="modal fade" id="routeModal" tabindex="-1">
         <div class="modal-dialog">
@@ -318,7 +434,11 @@
         </div>
     </div>
 
+    <!-- Include WiFi Management Tab HTML -->
+    {% include 'wifi-tab.html' %}
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='wifi-management.js') }}"></script>
 </body>
 </html>

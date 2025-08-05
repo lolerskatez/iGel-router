@@ -1,13 +1,17 @@
-# IGEL M250C Tailscale Subnet Router
+# TailSentry - Universal Tailscale Router Solution
 
-This project sets up an IGEL M250C thin client as a headless Tailscale subnet router and exit node using a USB-booted Debian OS.
+TailSentry transforms any compatible hardware into a powerful headless Tailscale subnet router and exit node using a Debian-based Linux distribution.
 
 ## Features
 
-✅ **Tailscale Integration**: Installed and configured with `--advertise-routes` and `--advertise-exit-node`  
+✅ **Flexible VPN Options**: Choose between Tailscale, self-hosted Headscale, or both  
+✅ **Hardware Agnostic**: Works on virtually any Debian-compatible device  
+✅ **WiFi Management**: Connect to external networks or create access points  
+✅ **"Coffee Shop" Mode**: Share connections through secure VPN even on restrictive networks  
 ✅ **CasaOS Web UI**: User-friendly web interface for managing services  
-✅ **Optional Cockpit**: Advanced web UI (port 9090) for system and network management  
-✅ **eMMC Optimization**: Automatically detects and uses onboard 3.5GB eMMC for swap or logs to reduce USB wear  
+✅ **Web Dashboard**: Built-in TailSentry dashboard for router management  
+✅ **Optional Cockpit**: Advanced web UI for system and network management  
+✅ **Storage Optimization**: Smart secondary storage configuration for improved performance  
 ✅ **USB Dongle Support**: Includes NetworkManager, ModemManager, and usb-modeswitch for Wi-Fi or cellular connectivity  
 ✅ **System Monitoring**: Built-in monitoring service for system health  
 ✅ **Firewall Configuration**: Automated UFW setup with appropriate port access  
@@ -18,10 +22,10 @@ This project sets up an IGEL M250C thin client as a headless Tailscale subnet ro
 
 ## Requirements
 
-- **Hardware**: IGEL M250C thin client (preferably upgraded to 4GB RAM)
-- **Storage**: 64GB+ USB 3.0 stick for OS installation
-- **OS**: Debian 12 minimal/server installed on USB (eMMC left untouched)
-- **Network**: Internet access via LAN or supported USB dongle
+- **Hardware**: Any compatible device (Raspberry Pi, old PC, thin client, etc.)
+- **Minimum Specs**: 2 CPU cores, 2GB RAM, 8GB storage
+- **OS**: Debian 12 minimal/server
+- **Network**: Internet access via LAN or supported WiFi/cellular
 
 ## Quick Start
 
@@ -41,8 +45,9 @@ The interactive installer will prompt you to configure:
 - **Device hostname** (how it appears in Tailscale)  
 - **Tailscale authentication key** (from your Tailscale admin panel)
 - **Network routes** to advertise (with smart defaults)
-- **eMMC storage usage** (recommended for better performance)
+- **Secondary storage usage** (for improved performance)
 - **Management interfaces** (CasaOS always included, Cockpit optional)
+- **WiFi connectivity options**
 
 ### Non-Interactive Installation
 
@@ -75,7 +80,7 @@ OPTIONS:
     --hostname=NAME            Device hostname
     --routes=ROUTES            Comma-separated CIDR routes
     --no-cockpit               Skip Cockpit installation
-    --no-emmc                  Skip eMMC configuration
+    --no-casaos                Skip CasaOS installation
 ```
 
 ### Getting Your Tailscale Auth Key
@@ -83,9 +88,10 @@ OPTIONS:
    - Generate a new auth key with appropriate permissions
    - Copy and paste it when prompted during installation
 
-4. **Access web interfaces**:
-   - **CasaOS**: http://your-device-ip (port 80)
-   - **Cockpit** (if installed): https://your-device-ip:9090
+### Access web interfaces
+- **TailSentry Dashboard**: http://your-device-ip:8088
+- **CasaOS**: http://your-device-ip (port 80)
+- **Cockpit** (if installed): https://your-device-ip:9090
 
 ## Configuration Options
 
@@ -95,7 +101,10 @@ OPTIONS:
 |----------|---------|-------------|
 | `TAILSCALE_AUTH_KEY` | - | Tailscale authentication key for automated setup |
 | `INSTALL_COCKPIT` | `true` | Install Cockpit web management interface |
-| `USE_EMMC` | `true` | Use eMMC storage for swap and log optimization |
+| `INSTALL_CASAOS` | `true` | Install CasaOS container management |
+| `USE_SECONDARY_STORAGE` | `false` | Use secondary storage device if available |
+| `DEVICE_HOSTNAME` | `tailsentry-router` | Device hostname in Tailscale |
+| `ADVERTISED_ROUTES` | `192.168.0.0/16,10.0.0.0/8,172.16.0.0/12` | Networks to route through VPN |
 
 ### Network Routes
 
@@ -104,42 +113,67 @@ The setup advertises the following subnet routes by default:
 - `10.0.0.0/8` - Private Class A networks  
 - `172.16.0.0/12` - Private Class B networks
 
+## WiFi Management
+
+TailSentry includes comprehensive WiFi management capabilities:
+
+### WiFi Client Mode
+- Connect to external WiFi networks (e.g., apartment complexes, coffee shops)
+- Scan, connect, and manage credentials through the web dashboard
+- Persist connections across reboots
+
+### Access Point Mode
+- Create your own WiFi network with your TailSentry device (requires compatible hardware)
+- Configure SSID, password, and channel through the web dashboard
+- Share internet with local devices
+
+### "Coffee Shop" Gateway Mode
+- Connect to a public WiFi network and share it via Tailscale
+- Perfect for sharing a single WiFi connection among multiple devices
+- Bypass common captive portal restrictions
+- Maintain privacy through encrypted Tailscale tunnel
+
 ## What Gets Installed
 
 ### Core Components
 - **Tailscale**: VPN mesh networking with subnet routing and exit node capabilities
-- **CasaOS**: Web-based service management dashboard
+- **TailSentry Dashboard**: Web-based management interface
+- **CasaOS**: Container and service management
 - **NetworkManager + ModemManager**: USB dongle and wireless connectivity support
 
 ### Optional Components
 - **Cockpit**: Advanced system management web interface
 - **System Monitor**: Custom monitoring service for health checks
+- **Headscale**: Self-hosted Tailscale coordination server (optional)
 
 ### System Optimizations
 - IP forwarding enabled for routing functionality
-- eMMC configured as swap space (if available)
-- Reduced journal logging to minimize USB wear
+- Secondary storage configuration for swap and logs
+- Reduced journal logging to minimize storage wear
 - UFW firewall with appropriate port access
 - Log rotation configuration
 
 ## File Structure
 
 ```
-iGel/
+TailSentry/
 ├── install.sh              # Main installation script
-├── configs/                 # Configuration files
+├── configs/                # Configuration files
 │   ├── tailscale/          # Tailscale configuration templates
 │   ├── network/            # Network configuration files
 │   └── systemd/            # Systemd service files
 ├── scripts/                # Additional utility scripts
-│   ├── emmc-setup.sh       # eMMC configuration script
-│   ├── usb-dongle-setup.sh # USB dongle setup script
+│   ├── wifi-manager.sh     # WiFi management script
+│   ├── gateway-setup.sh    # Coffee shop gateway setup
 │   ├── backup-config.sh    # Configuration backup script
 │   ├── network-setup.sh    # Network interface configuration
 │   └── maintenance.sh      # System maintenance and updates
+├── web-dashboard/          # Web interface code
+│   ├── app.py              # Flask application
+│   ├── api/                # API endpoints
+│   ├── static/             # Static assets
+│   └── templates/          # HTML templates
 └── docs/                   # Documentation
-    ├── hardware-specs.md   # Hardware specifications
-    └── security-config.md  # Security configuration guide
 ```
 
 ## Usage Examples
@@ -149,17 +183,21 @@ iGel/
 # Interactive setup (recommended)
 sudo ./install.sh
 
-# Follow the prompts to enter your Tailscale auth key
+# Follow the prompts to configure your router
 ```
 
-### Automated Setup with Tailscale Key
+### WiFi Gateway (Coffee Shop Mode)
 ```bash
-sudo TAILSCALE_AUTH_KEY='tskey-auth-...' ./install.sh
+# Set up through the dashboard or use:
+sudo tailsentry-gateway wlan0 "CoffeeShopWiFi" "password123"
 ```
 
-### Minimal Installation (no Cockpit, no eMMC)
+### Setup with WiFi Access Point
 ```bash
-sudo INSTALL_COCKPIT=false USE_EMMC=false ./install.sh
+# Set up a TailSentry with AP mode:
+sudo ./install.sh
+# Then use the dashboard or:
+sudo tailsentry-wifi start-ap wlan0 "TailSentryAP" "securepassword"
 ```
 
 ## Post-Installation
@@ -167,25 +205,21 @@ sudo INSTALL_COCKPIT=false USE_EMMC=false ./install.sh
 ### Tailscale Administration
 1. Log into your Tailscale admin console
 2. Navigate to the "Machines" tab
-3. Find your IGEL device (hostname: `igel-m250c-router`)
+3. Find your TailSentry device
 4. Enable "Subnet routes" and "Exit node" as needed
 
 ### Service Management
 ```bash
 # Check service status
-systemctl status tailscaled casaos cockpit.socket igel-monitor
+systemctl status tailscaled casaos cockpit.socket tailsentry-monitor
 
 # View logs
-tail -f /var/log/igel-setup.log
-tail -f /var/log/igel-monitor.log
+tail -f /var/log/tailsentry-setup.log
+tail -f /var/log/tailsentry-monitor.log
 
 # Restart services
 systemctl restart tailscaled
 systemctl restart casaos
-
-# Run system maintenance
-/usr/local/bin/igel-maintenance health
-/usr/local/bin/igel-maintenance update
 ```
 
 ### Network Testing
@@ -216,49 +250,38 @@ tailscale logout
 tailscale up --advertise-routes=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12 --advertise-exit-node
 ```
 
-**CasaOS not accessible:**
+**WiFi connection issues:**
 ```bash
-# Check service status
-systemctl status casaos
+# Check WiFi interface status
+sudo tailsentry-wifi status wlan0
 
-# Check if port is open
-netstat -tlnp | grep :80
+# Scan for networks
+sudo tailsentry-wifi scan wlan0
 
-# Restart service
-systemctl restart casaos
-```
-
-**USB dongle not recognized:**
-```bash
-# Check USB devices
-lsusb
-
-# Check network interfaces
-ip link show
-
-# Restart NetworkManager
-systemctl restart NetworkManager
+# Restart connection
+sudo nmcli radio wifi off
+sudo nmcli radio wifi on
 ```
 
 ### Log Files
 
-- Main setup log: `/var/log/igel-setup.log`
-- Monitor log: `/var/log/igel-monitor.log`
+- Main setup log: `/var/log/tailsentry-setup.log`
+- Monitor log: `/var/log/tailsentry-monitor.log`
+- WiFi log: `/var/log/tailsentry-wifi.log`
 - System logs: `journalctl -u [service-name]`
 
-## Hardware Notes
+## Hardware Compatibility
 
-### IGEL M250C Specifications
-- **CPU**: AMD GX-415GA (Quad-core, 1.5GHz)
-- **RAM**: 2GB standard (upgradeable to 4GB recommended)
-- **Storage**: 3.5GB eMMC + USB boot drive
-- **Network**: Gigabit Ethernet, optional USB Wi-Fi/cellular
-- **Ports**: 4x USB, VGA, DVI, audio
+TailSentry has been tested on:
+- Raspberry Pi 3/4/5
+- IGEL M250C thin clients
+- Intel NUC
+- Various x86_64 and ARM devices
 
 ### Performance Expectations
-- **Routing throughput**: ~100-200 Mbps (depending on CPU load)
-- **Power consumption**: ~15W typical
-- **Boot time**: ~30-60 seconds from USB
+- Raspberry Pi 3B+: ~80-150 Mbps routing throughput
+- Raspberry Pi 4/5: ~300-500 Mbps routing throughput
+- x86 (2+ cores): ~200-1000+ Mbps (CPU dependent)
 
 ## Security Considerations
 
@@ -273,4 +296,4 @@ Feel free to submit issues and enhancement requests!
 
 ## License
 
-This project is provided as-is for educational and personal use.
+This project is provided under the MIT License. See LICENSE file for details.

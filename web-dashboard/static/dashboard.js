@@ -13,6 +13,7 @@ class IgelDashboard {
     init() {
         this.startAutoUpdate();
         this.bindEvents();
+        this.setupNavigation();
         this.updateTime();
         setInterval(() => this.updateTime(), 1000);
         console.log('IGEL Dashboard initialized');
@@ -25,6 +26,48 @@ class IgelDashboard {
                 e.preventDefault();
             });
         });
+    }
+
+    setupNavigation() {
+        // Handle navigation between sections
+        const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+        const sections = document.querySelectorAll('.section-content');
+        
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Remove active class from all nav links
+                navLinks.forEach(nl => nl.classList.remove('active'));
+                
+                // Add active class to clicked link
+                link.classList.add('active');
+                
+                // Hide all sections
+                sections.forEach(section => section.style.display = 'none');
+                
+                // Show dashboard by default or show specific section
+                const href = link.getAttribute('href');
+                if (href === '#configuration') {
+                    document.getElementById('configuration').style.display = 'block';
+                    this.loadConfiguration();
+                } else {
+                    // Show main dashboard content for all other sections
+                    const mainContent = document.querySelector('.container-fluid .row:first-child').parentElement;
+                    mainContent.querySelectorAll('.row').forEach(row => {
+                        if (!row.querySelector('#configuration')) {
+                            row.style.display = 'block';
+                        }
+                    });
+                }
+            });
+        });
+        
+        // Show dashboard by default
+        const dashboardLink = document.querySelector('.navbar-nav .nav-link[href="#dashboard"]');
+        if (dashboardLink) {
+            dashboardLink.classList.add('active');
+        }
     }
 
     updateTime() {
@@ -202,6 +245,121 @@ class IgelDashboard {
             throw error;
         }
     }
+
+    async loadConfiguration() {
+        try {
+            const response = await fetch('/api/system/configuration');
+            if (!response.ok) throw new Error('Failed to load configuration');
+            
+            const data = await response.json();
+            if (data.success) {
+                this.renderConfiguration(data.configuration);
+            } else {
+                throw new Error(data.message || 'Failed to load configuration');
+            }
+        } catch (error) {
+            console.error('Error loading configuration:', error);
+            document.getElementById('configuration-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Failed to load configuration: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    renderConfiguration(config) {
+        const configContent = document.getElementById('configuration-content');
+        
+        // Render feature configuration
+        let featuresHtml = '<div class="row">';
+        
+        Object.entries(config.features).forEach(([key, feature]) => {
+            const statusColor = feature.enabled ? 'success' : (feature.installed ? 'warning' : 'secondary');
+            const statusIcon = feature.enabled ? 'check-circle' : (feature.installed ? 'exclamation-triangle' : 'x-circle');
+            
+            featuresHtml += `
+                <div class="col-lg-6 mb-4">
+                    <div class="card h-100 ${feature.enabled ? 'border-success' : ''}">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">
+                                <i class="bi bi-${statusIcon} text-${statusColor}"></i>
+                                ${feature.name}
+                            </h6>
+                            <span class="badge bg-${statusColor}">${feature.status}</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text text-muted mb-3">${feature.description}</p>
+                            ${feature.warning ? `
+                                <div class="alert alert-warning alert-sm mb-3">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Note:</strong> ${feature.warning}
+                                </div>
+                            ` : ''}
+                            <h6 class="small text-uppercase text-muted mb-2">Benefits:</h6>
+                            <ul class="list-unstyled small">
+                                ${feature.benefits.map(benefit => `
+                                    <li class="mb-1">
+                                        <i class="bi bi-check2 text-success"></i> ${benefit}
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        featuresHtml += '</div>';
+        configContent.innerHTML = featuresHtml;
+        
+        // Update web interface status
+        this.updateWebInterfaceStatus(config.web_interfaces);
+    }
+
+    updateWebInterfaceStatus(interfaces) {
+        // Update CasaOS
+        const casaosStatus = document.getElementById('casaos-status');
+        const casaosLink = document.getElementById('casaos-link');
+        if (interfaces.casaos && interfaces.casaos.enabled) {
+            casaosStatus.textContent = 'Available';
+            casaosStatus.className = 'badge bg-success';
+            casaosLink.style.display = 'block';
+            casaosLink.onclick = () => window.open(interfaces.casaos.url, '_blank');
+        } else {
+            casaosStatus.textContent = 'Not Installed';
+            casaosStatus.className = 'badge bg-secondary';
+            casaosLink.style.display = 'none';
+        }
+        
+        // Update Cockpit
+        const cockpitStatus = document.getElementById('cockpit-status');
+        const cockpitLink = document.getElementById('cockpit-link');
+        if (interfaces.cockpit && interfaces.cockpit.enabled) {
+            cockpitStatus.textContent = 'Available';
+            cockpitStatus.className = 'badge bg-success';
+            cockpitLink.style.display = 'block';
+            cockpitLink.onclick = () => window.open(interfaces.cockpit.url, '_blank');
+        } else {
+            cockpitStatus.textContent = 'Not Installed';
+            cockpitStatus.className = 'badge bg-secondary';
+            cockpitLink.style.display = 'none';
+        }
+        
+        // Update Headplane
+        const headplaneStatus = document.getElementById('headplane-status');
+        const headplaneLink = document.getElementById('headplane-link');
+        if (interfaces.headplane && interfaces.headplane.enabled) {
+            headplaneStatus.textContent = 'Available';
+            headplaneStatus.className = 'badge bg-success';
+            headplaneLink.style.display = 'block';
+            headplaneLink.onclick = () => window.open(interfaces.headplane.url, '_blank');
+        } else {
+            headplaneStatus.textContent = 'Not Available';
+            headplaneStatus.className = 'badge bg-secondary';
+            headplaneLink.style.display = 'none';
+        }
+    }
 }
 
 // VPN Management Functions
@@ -371,6 +529,11 @@ function refreshStatus() {
     dashboard.showAlert('Status refreshed', 'info', 2000);
 }
 
+function refreshConfiguration() {
+    dashboard.loadConfiguration();
+    dashboard.showAlert('Configuration refreshed', 'info', 2000);
+}
+
 // Initialize dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
     window.dashboard = new IgelDashboard();
@@ -385,3 +548,4 @@ window.generatePreAuthKey = generatePreAuthKey;
 window.rotateKey = rotateKey;
 window.refreshVpnStatus = refreshVpnStatus;
 window.refreshStatus = refreshStatus;
+window.refreshConfiguration = refreshConfiguration;

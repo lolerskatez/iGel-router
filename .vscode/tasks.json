@@ -2,13 +2,13 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Deploy to IGEL Device",
+            "label": "Deploy to TailSentry Device",
             "type": "shell",
             "command": "scp",
             "args": [
                 "-r",
                 ".",
-                "root@${input:igelHost}:/opt/igel-setup/"
+                "root@${input:igelHost}:/opt/tailsentry/"
             ],
             "group": "build",
             "presentation": {
@@ -25,7 +25,7 @@
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "cd /opt/igel-setup && chmod +x *.sh scripts/*.sh configs/tailscale/connect.sh && ./install.sh"
+                "cd /opt/tailsentry && chmod +x *.sh scripts/*.sh configs/tailscale/connect.sh && ./install.sh"
             ],
             "group": "build",
             "presentation": {
@@ -35,13 +35,13 @@
                 "panel": "shared"
             },
             "problemMatcher": [],
-            "dependsOn": "Deploy to IGEL Device"
+            "dependsOn": "Deploy to TailSentry Device"
         },
         {
             "label": "Deploy and Install",
             "type": "shell",
             "command": "echo",
-            "args": ["Deploying and installing IGEL setup..."],
+            "args": ["Deploying and installing TailSentry..."],
             "group": "build",
             "dependsOrder": "sequence",
             "dependsOn": [
@@ -50,7 +50,7 @@
             ]
         },
         {
-            "label": "Check IGEL Status",
+            "label": "Check TailSentry Status",
             "type": "shell",
             "command": "ssh",
             "args": [
@@ -67,12 +67,12 @@
             "problemMatcher": []
         },
         {
-            "label": "View IGEL Logs",
+            "label": "View TailSentry Logs",
             "type": "shell",
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "tail -f /var/log/igel-setup.log"
+                "tail -f /var/log/tailsentry-setup.log"
             ],
             "group": "test",
             "presentation": {
@@ -84,12 +84,12 @@
             "problemMatcher": []
         },
         {
-            "label": "Backup IGEL Configuration",
+            "label": "Backup TailSentry Configuration",
             "type": "shell",
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "/opt/igel-setup/scripts/backup-config.sh backup"
+                "/opt/tailsentry/scripts/backup-config.sh backup"
             ],
             "group": "build",
             "presentation": {
@@ -101,12 +101,12 @@
             "problemMatcher": []
         },
         {
-            "label": "IGEL System Health Check",
+            "label": "TailSentry System Health Check",
             "type": "shell",
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "/usr/local/bin/igel-maintenance health"
+                "/usr/local/bin/tailsentry-maintenance health"
             ],
             "group": "test",
             "presentation": {
@@ -118,12 +118,12 @@
             "problemMatcher": []
         },
         {
-            "label": "Update IGEL System",
+            "label": "Update TailSentry System",
             "type": "shell",
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "/usr/local/bin/igel-maintenance update"
+                "/usr/local/bin/tailsentry-maintenance update"
             ],
             "group": "build",
             "presentation": {
@@ -135,12 +135,12 @@
             "problemMatcher": []
         },
         {
-            "label": "IGEL Network Setup",
+            "label": "TailSentry Network Setup",
             "type": "shell",
             "command": "ssh",
             "args": [
                 "root@${input:igelHost}",
-                "/usr/local/bin/igel-network-setup setup"
+                "/usr/local/bin/tailsentry-network-setup setup"
             ],
             "group": "build",
             "presentation": {
@@ -155,7 +155,7 @@
     "inputs": [
         {
             "id": "igelHost",
-            "description": "IGEL device hostname or IP address",
+            "description": "TailSentry device hostname or IP address",
             "default": "192.168.1.100",
             "type": "promptString"
         }

@@ -1,1 +1,1 @@
-# API package for IGEL Dashboard
+# API package for TailSentry Dashboard

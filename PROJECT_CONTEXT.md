@@ -1,49 +1,51 @@
-# IGEL M250C Tailscale Router - Development Context
+# TailSentry - Universal Tailscale Router Solution - Development Context
 
 ## Project Overview
 
-**Project Name**: IGEL M250C Tailscale Router with Web Management  
-**Version**: 2.0.0  
+**Project Name**: TailSentry Universal Tailscale Router  
+**Version**: 3.0.0  
 **Created**: July 31, 2025  
-**Last Updated**: August 3, 2025  
-**Status**: Production Ready with Enterprise Features  
+**Last Updated**: September 15, 2025  
+**Status**: Production Ready with Hardware-Agnostic Design  
 
 ### Purpose
-This project transforms an IGEL M250C thin client into a comprehensive network appliance featuring:
+This project transforms any compatible hardware device into a comprehensive network appliance featuring:
 - Tailscale/Headscale VPN routing with subnet and exit node capabilities
+- Advanced WiFi management with client, AP, and gateway modes
 - Custom web dashboard for complete system management
 - Optional self-hosted VPN coordination server
 - Enterprise-grade monitoring and maintenance automation
 - Flexible deployment options from minimal to full-featured
 
 ### Target Hardware
-- **Primary**: IGEL M250C thin client
-- **CPU**: AMD GX-415GA SoC (4-core, 1.5GHz, 15W TDP)
-- **RAM**: 2GB standard (4GB upgrade recommended for full features)
-- **Storage**: 3.5GB eMMC + 64GB+ USB 3.0 boot drive
-- **Network**: Gigabit Ethernet + USB dongle support
-- **Performance**: 100-200 Mbps routing throughput
+- **Primary**: Raspberry Pi 3/4/5, but hardware-agnostic design
+- **CPU**: Any modern ARM or x86 processor (2+ cores recommended)
+- **RAM**: 2GB+ (4GB recommended for full features)
+- **Storage**: 8GB+ primary storage, optional secondary storage
+- **Network**: Ethernet and/or WiFi, with USB dongle support
+- **Performance**: 80-1000+ Mbps routing throughput (hardware dependent)
 
 ## Architecture Overview
 
 ### System Components
 
-1. **Base OS**: Debian 12 minimal/server (USB-booted)
+1. **Base OS**: Debian 12 minimal/server
 2. **VPN Layer**: 
    - Tailscale (cloud-hosted coordination)
    - Headscale (optional self-hosted server)
    - Headplane (optional web UI for Headscale)
 3. **Management Interfaces**: 
-   - **IGEL Dashboard** (primary - custom Flask app)
+   - **TailSentry Dashboard** (primary - custom Flask app)
    - CasaOS (optional Docker management)
    - Cockpit (optional system administration)
 4. **User Management**: 
    - root (full administration)
    - app-services (limited service management)
 5. **Network Stack**: NetworkManager + systemd-networkd
-6. **Storage Optimization**: eMMC for swap/logs/databases
-7. **Monitoring**: Comprehensive health monitoring and alerting
-8. **Connectivity**: USB Wi-Fi/cellular dongle support
+6. **WiFi Management**: Comprehensive wireless capabilities
+7. **Storage Optimization**: Secondary storage for swap/logs/databases
+8. **Monitoring**: Comprehensive health monitoring and alerting
+9. **Connectivity**: Built-in WiFi and USB Wi-Fi/cellular dongle support
 
 ## Feature Matrix
 
@@ -51,12 +53,13 @@ This project transforms an IGEL M250C thin client into a comprehensive network a
 | Feature | Minimal | Custom | Full |
 |---------|---------|---------|------|
 | Tailscale VPN | ✅ Required | ✅ Required | ✅ Required |
-| IGEL Dashboard | ✅ Default | ⚙️ Optional | ✅ Enabled |
+| TailSentry Dashboard | ✅ Default | ⚙️ Optional | ✅ Enabled |
+| WiFi Management | ✅ Default | ⚙️ Optional | ✅ Enabled |
 | CasaOS Docker UI | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | Cockpit Admin | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | Headscale Server | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | Headplane UI | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
-| eMMC Optimization | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
+| Secondary Storage | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | Security Hardening | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | System Monitoring | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
 | Maintenance Scripts | ❌ Disabled | ⚙️ Optional | ✅ Enabled |
@@ -65,7 +68,8 @@ This project transforms an IGEL M250C thin client into a comprehensive network a
 ### Web Interface Ports
 | Service | Port | Purpose | Authentication |
 |---------|------|---------|----------------|
-| IGEL Dashboard | 8088 | Router Management | Basic Auth |
+| TailSentry Dashboard | 8088 | Router Management | Basic Auth |
+| WiFi Management | 8088 | Network Configuration | Basic Auth |
 | CasaOS | 80 | Docker Apps | Built-in |
 | Cockpit | 9090 | System Admin | PAM |
 | Headscale | 8080 | VPN Coordination | API Key |
@@ -78,6 +82,47 @@ This project transforms an IGEL M250C thin client into a comprehensive network a
 | Self-Hosted | Headscale + Headplane | Privacy, control | Enterprise/Privacy |
 | Hybrid | Both available | Flexibility | Development/Testing |
 
+### WiFi Management Modes
+| Mode | Description | Use Case | Configuration |
+|------|-------------|----------|---------------|
+| Client | Connect to existing WiFi | Coffee shops, apartments | Web UI or `tailsentry-wifi connect` |
+| Access Point | Create WiFi network | Local sharing | Web UI or `tailsentry-wifi start-ap` |
+| Gateway | Client + Tailscale exit | Share restricted WiFi | Web UI or `tailsentry-gateway` |
+| Mesh | Multiple APs (advanced) | Large coverage area | Advanced configuration only |
+
+## WiFi Management Features
+
+### Coffee Shop / Apartment WiFi Mode
+This specialized feature addresses a common user need:
+1. **Challenge**: User has WiFi credentials for apartment/coffee shop WiFi but wants to:
+   - Connect multiple devices without individual setup
+   - Bypass device limits imposed by the venue
+   - Maintain privacy from the public network
+   
+2. **Solution**: Gateway mode with Tailscale exit node:
+   - TailSentry connects to public WiFi as a client
+   - Acts as a Tailscale exit node
+   - Other devices connect through Tailscale to access internet
+   - Traffic is encrypted through the Tailscale tunnel
+   
+3. **Implementation**:
+   ```bash
+   # Command-line usage
+   tailsentry-gateway wlan0 "CoffeeShopWiFi" "password123"
+   
+   # Web UI
+   - Navigate to WiFi tab
+   - Select "Gateway Mode"
+   - Enter credentials
+   - Enable "Share as Tailscale Exit Node"
+   ```
+
+4. **Benefits**:
+   - Works around captive portal authentication (one-time login)
+   - Bypasses per-device restrictions
+   - Provides encrypted tunnel for all connected devices
+   - Persists across reboots
+
 ### Network Architecture
 ```
 Internet ──┐
@@ -86,13 +131,13 @@ Internet ──┐
     │   Router    │
     │ (Gateway)   │
     └──────┬──────┘
-           │ Ethernet
+           │ Ethernet/WiFi
     ┌──────▼──────┐       ┌─────────────┐
-    │ IGEL M250C  │◄─────►│ Self-Hosted │
+    │ TailSentry  │◄─────►│ Self-Hosted │
     │ Router      │       │ Headscale   │
     │             │       │ (Optional)  │
     │ ┌─────────┐ │       └─────────────┘
-    │ │Dashboard│ │ ←─── USB Dongles (Wi-Fi/Cellular)
+    │ │Dashboard│ │ 
     │ │:8088    │ │
     │ └─────────┘ │
     └──────┬──────┘
@@ -107,8 +152,8 @@ Internet ──┐
 
 ### Directory Structure
 ```
-iGel/
-├── install.sh                    # Main installation script (2300+ lines)
+TailSentry/
+├── install.sh                    # Main installation script (2500+ lines)
 ├── README.md                     # User documentation
 ├── DEPLOYMENT.md                 # Deployment guide
 ├── PROJECT_CONTEXT.md            # This file
@@ -121,18 +166,22 @@ iGel/
 ├── .vscode/
 │   └── tasks.json                # VS Code deployment tasks
 ├── web-dashboard/                # Custom management dashboard
-│   ├── app.py                    # Flask application (350+ lines)
+│   ├── app.py                    # Flask application (400+ lines)
 │   ├── requirements.txt          # Python dependencies
 │   ├── setup-dashboard.sh        # Dashboard setup script
-│   ├── igel-dashboard.service    # Systemd service file
+│   ├── tailsentry-dashboard.service # Primary systemd service file
+│   ├── igel-dashboard.service    # Legacy compatibility service file
 │   ├── api/
 │   │   ├── __init__.py          
-│   │   └── routes.py             # API endpoints (400+ lines)
+│   │   ├── routes.py             # API endpoints (400+ lines)
+│   │   └── wifi.py               # WiFi management endpoints (350+ lines)
 │   ├── static/
 │   │   ├── dashboard.css         # Custom styling (300+ lines)
-│   │   └── dashboard.js          # Frontend logic (400+ lines)
+│   │   ├── dashboard.js          # Frontend logic (400+ lines)
+│   │   └── wifi-management.js    # WiFi management UI (350+ lines)
 │   └── templates/
-│       └── dashboard.html        # Main UI template (200+ lines)
+│       ├── dashboard.html        # Main UI template (250+ lines)
+│       └── wifi-tab.html         # WiFi management interface (180+ lines)
 ├── configs/                      # Configuration templates
 │   ├── tailscale/
 │   │   ├── tailscaled.conf       # Daemon configuration template
@@ -141,19 +190,19 @@ iGel/
 │   │   ├── 10-ethernet.network   # Ethernet priority config
 │   │   └── 20-wifi.network       # Wi-Fi priority config
 │   └── systemd/
-│       ├── igel-monitor.service  # System monitoring service
-│       └── igel-emmc.service     # eMMC optimization service
+│       ├── tailsentry-monitor.service  # System monitoring service
+│       └── tailsentry-emmc.service     # Storage optimization service
 ├── scripts/                      # Utility scripts
-│   ├── emmc-setup.sh            # eMMC configuration (320 lines)
-│   ├── usb-dongle-setup.sh      # USB device support (380 lines)
-│   ├── backup-config.sh         # Configuration backup (245 lines)
-│   ├── network-setup.sh         # Network interface setup (260 lines)
-│   ├── maintenance.sh           # System maintenance (420 lines)
-│   ├── auto-maintenance.sh      # Automated maintenance
-│   ├── health-check.sh          # System health monitoring
-│   ├── security-hardening.sh   # Security configuration
-│   ├── status-api.sh            # Status reporting API
-│   └── wireless-manager.sh      # Wi-Fi management
+│   ├── wifi-manager.sh           # WiFi configuration (450+ lines)
+│   ├── gateway-setup.sh          # Coffee shop gateway setup (280+ lines)
+│   ├── backup-config.sh          # Configuration backup (245 lines)
+│   ├── network-setup.sh          # Network interface setup (280+ lines)
+│   ├── maintenance.sh            # System maintenance (420 lines)
+│   ├── auto-maintenance.sh       # Automated maintenance
+│   ├── health-check.sh           # System health monitoring
+│   ├── security-hardening.sh     # Security configuration
+│   ├── status-api.sh             # Status reporting API
+│   └── wireless-manager.sh       # Legacy wireless management
 └── docs/                        # Documentation
     ├── hardware-specs.md        # Hardware specifications
     └── security-config.md       # Security configuration guide
@@ -165,11 +214,32 @@ Internet ──┐
     │   Router    │
     │ (Gateway)   │
     └──────┬──────┘
-           │ Ethernet
+           │ Ethernet/WiFi
     ┌──────▼──────┐
-    │ IGEL M250C  │
-    │ Tailscale   │ ←─── USB Dongles (Wi-Fi/Cellular)
-    │ Router      │
+    │ TailSentry  │
+    │ Router      │ ←─── WiFi AP/Client
+    │             │
+    └──────┬──────┘
+           │ Tailscale VPN
+    ┌──────▼──────┐
+    │  Remote     │
+    │  Clients    │
+    └─────────────┘
+```
+
+### Alternative "Coffee Shop" Mode
+```
+Internet ──┐
+           │
+    ┌──────▼──────┐
+    │   WiFi AP   │
+    │ (Coffee Shop)│
+    └──────┬──────┘
+           │ WiFi Client Mode
+    ┌──────▼──────┐
+    │ TailSentry  │
+    │ Router      │ ←─── Local Clients
+    │             │      (Optional)
     └──────┬──────┘
            │ Tailscale VPN
     ┌──────▼──────┐
@@ -180,27 +250,11 @@ Internet ──┐
 
 ## File Structure & Organization
 
-### Directory Structure
-```
-iGel/
-├── install.sh                    # Main installation script (428 lines)
-├── README.md                     # User documentation
-├── DEPLOYMENT.md                 # Deployment guide
-├── PROJECT_CONTEXT.md            # This file
-├── .github/
-│   └── copilot-instructions.md   # AI assistant guidelines
-├── .vscode/
-│   └── tasks.json                # VS Code deployment tasks
-├── configs/                      # Configuration templates
-│   ├── tailscale/
-│   │   ├── tailscaled.conf       # Daemon configuration template
-│   │   └── connect.sh            # Connection helper script
-│   ├── network/
-│   │   ├── 10-ethernet.network   # Ethernet priority config
-│   │   └── 20-wifi.network       # Wi-Fi priority config
+
 │   └── systemd/
-│       ├── igel-monitor.service  # System monitoring service
-│       └── igel-emmc.service     # eMMC optimization service
+│       ├── tailsentry-monitor.service  # System monitoring service
+│       ├── igel-monitor.service        # Legacy compatibility service
+│       └── igel-emmc.service           # eMMC optimization service
 ├── scripts/                      # Utility scripts
 │   ├── emmc-setup.sh            # eMMC configuration (320 lines)
 │   ├── usb-dongle-setup.sh      # USB device support (380 lines)

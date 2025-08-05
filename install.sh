@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# IGEL M250C Tailscale Subnet Router Setup Script
-# This script configures an IGEL M250C thin client as a headless Tailscale subnet router
-# and exit node using USB-booted Debian 12
+# TailSentry - Universal Tailscale Subnet Router Setup Script
+# This script configures any compatible hardware as a headless Tailscale subnet router
+# and exit node using Debian-based Linux distributions
 #
 # REQUIRED: Only Tailscale installation is mandatory
 # OPTIONAL: All other features (CasaOS, Cockpit, monitoring, etc.) are optional
@@ -15,16 +15,25 @@
 
 set -euo pipefail
 
+# Create TailSentry directory structure
+mkdir -p /opt/tailsentry
+# Copy current directory contents if we're not already in /opt/tailsentry
+if [[ "$(pwd)" != "/opt/tailsentry" ]]; then
+    cp -r ./* /opt/tailsentry/ 2>/dev/null || true
+fi
+
 # Configuration variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="/var/log/igel-setup.log"
+LOG_FILE="/var/log/tailsentry-setup.log"
+INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-true}"
 TAILSCALE_AUTH_KEY="${TAILSCALE_AUTH_KEY:-}"
 INSTALL_COCKPIT="${INSTALL_COCKPIT:-}"
 INSTALL_CASAOS="${INSTALL_CASAOS:-}"
 INSTALL_HEADSCALE="${INSTALL_HEADSCALE:-}"
 INSTALL_HEADPLANE="${INSTALL_HEADPLANE:-}"
 INSTALL_DASHBOARD="${INSTALL_DASHBOARD:-true}"
-USE_EMMC="${USE_EMMC:-}"
+USE_SECONDARY_STORAGE="${USE_SECONDARY_STORAGE:-}"
+SECONDARY_STORAGE_DEVICE="${SECONDARY_STORAGE_DEVICE:-}"
 DEVICE_HOSTNAME="${DEVICE_HOSTNAME:-}"
 ADVERTISED_ROUTES="${ADVERTISED_ROUTES:-}"
 HEADSCALE_DOMAIN="${HEADSCALE_DOMAIN:-}"
@@ -36,7 +45,7 @@ ENABLE_SECURITY_HARDENING="${ENABLE_SECURITY_HARDENING:-}"
 ENABLE_MONITORING="${ENABLE_MONITORING:-}"
 ENABLE_MAINTENANCE_SCRIPTS="${ENABLE_MAINTENANCE_SCRIPTS:-}"
 ENABLE_SYSTEM_OPTIMIZATION="${ENABLE_SYSTEM_OPTIMIZATION:-}"
-INSTALL_ID="igel-$(date +%Y%m%d)-$(openssl rand -hex 4 2>/dev/null || echo $(shuf -i 1000-9999 -n 1))"
+INSTALL_ID="tailsentry-$(date +%Y%m%d)-$(openssl rand -hex 4 2>/dev/null || echo $(shuf -i 1000-9999 -n 1))"
 
 # Colors for output
 RED='\033[0;31m'
@@ -72,9 +81,16 @@ preflight_checks() {
     
     local checks_passed=true
     
-    # Check if this looks like an IGEL M250C
-    if ! lscpu | grep -q "AMD GX-415GA\|AuthenticAMD"; then
-        log_warning "System doesn't appear to be AMD-based (expected for IGEL M250C)"
+    # Check system architecture and capabilities
+    local cpu_arch=$(lscpu | grep "Architecture" | awk '{print $2}')
+    log "System CPU architecture: $cpu_arch"
+    
+    # Basic performance check
+    local cpu_cores=$(nproc)
+    if [[ $cpu_cores -lt 2 ]]; then
+        log_warning "System has only $cpu_cores CPU core(s). Performance may be limited."
+    else
+        log "System has $cpu_cores CPU core(s). Performance should be adequate."
     fi
     
     # Check available memory
@@ -124,18 +140,18 @@ preflight_checks() {
 # Interactive configuration prompt
 interactive_config() {
     # Skip if all values are already set via environment variables
-    if [[ -n "$TAILSCALE_AUTH_KEY" && -n "$INSTALL_COCKPIT" && -n "$INSTALL_CASAOS" && -n "$USE_EMMC" && -n "$DEVICE_HOSTNAME" && -n "$ENABLE_SECURITY_HARDENING" ]]; then
+    if [[ -n "$TAILSCALE_AUTH_KEY" && -n "$INSTALL_COCKPIT" && -n "$INSTALL_CASAOS" && -n "$DEVICE_HOSTNAME" && -n "$ENABLE_SECURITY_HARDENING" && -n "$USE_SECONDARY_STORAGE" ]]; then
         log "Using configuration from environment variables"
         return 0
     fi
     
     echo
     echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║                      IGEL M250C Router Setup                          ║${NC}"
+    echo -e "${BLUE}║                     TailSentry Router Setup                           ║${NC}"
     echo -e "${BLUE}║                   Interactive Configuration                           ║${NC}"
     echo -e "${BLUE}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo "This wizard will guide you through configuring your IGEL M250C as a"
+    echo "This wizard will guide you through configuring your device as a"
     echo "Tailscale subnet router. Only Tailscale is required - all other features are optional."
     echo "You can press Enter to use default values or skip optional features."
     echo
@@ -143,28 +159,142 @@ interactive_config() {
     # Device hostname
     if [[ -z "$DEVICE_HOSTNAME" ]]; then
         echo -e "${YELLOW}Device Hostname Configuration${NC}"
-        echo "Choose a hostname for your IGEL router (will appear in Tailscale admin):"
-        read -p "Hostname [igel-m250c-router]: " -r hostname_input
-        DEVICE_HOSTNAME="${hostname_input:-igel-m250c-router}"
+        local current_hostname=$(hostname)
+        echo "Current hostname: $current_hostname"
+        echo "Choose a hostname for your TailSentry router (will appear in Tailscale admin):"
+        echo "  1. Keep current hostname ($current_hostname)"
+        echo "  2. Use default (tailsentry-router)"
+        echo "  3. Enter custom hostname"
+        echo
+        while true; do
+            read -p "Choose option [1]: " -n 1 -r hostname_choice
+            echo
+            case $hostname_choice in
+                1|"")
+                    DEVICE_HOSTNAME="$current_hostname"
+                    echo "Using current hostname: $current_hostname"
+                    break
+                    ;;
+                2)
+                    DEVICE_HOSTNAME="tailsentry-router"
+                    echo "Using default hostname: tailsentry-router"
+                    break
+                    ;;
+                3)
+                    read -p "Enter custom hostname: " -r custom_hostname
+                    if [[ -n "$custom_hostname" && "$custom_hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$ ]]; then
+                        DEVICE_HOSTNAME="$custom_hostname"
+                        echo "Using custom hostname: $custom_hostname"
+                        break
+                    else
+                        echo "Invalid hostname. Please use only letters, numbers, and hyphens."
+                        echo "Hostname must start and end with alphanumeric characters."
+                    fi
+                    ;;
+                *)
+                    echo "Please choose 1, 2, or 3"
+                    ;;
+            esac
+        done
         echo
     fi
     
-    # eMMC usage
-    if [[ -z "$USE_EMMC" ]]; then
-        echo -e "${YELLOW}eMMC Storage Configuration${NC}"
-        echo "The IGEL M250C has ~3.5GB internal eMMC storage that can be used for:"
-        echo "  • Swap space (reduces USB drive wear)"
-        echo "  • Log storage (improves performance)"
-        echo
-        while true; do
-            read -p "Use eMMC for swap and log storage? [Y/n]: " -n 1 -r emmc_choice
-            echo
-            case $emmc_choice in
-                [Yy]|"") USE_EMMC="true"; break ;;
-                [Nn]) USE_EMMC="false"; break ;;
-                *) echo "Please answer Y or n" ;;
-            esac
+    # Secondary storage usage
+    # Initialize with default if not set
+    USE_SECONDARY_STORAGE="${USE_SECONDARY_STORAGE:-false}"
+    SECONDARY_STORAGE_DEVICE="${SECONDARY_STORAGE_DEVICE:-}"
+    
+    if [[ -z "$USE_SECONDARY_STORAGE" || "$USE_SECONDARY_STORAGE" == "false" ]]; then
+        echo -e "${YELLOW}Secondary Storage Configuration${NC}"
+        echo "Available storage devices:"
+        
+        # List all block devices that are not the root device
+        ROOT_DEVICE=$(df / | tail -1 | awk '{print $1}' | sed 's/[0-9]*$//')
+        echo "Root device: $ROOT_DEVICE (will not be used for secondary storage)"
+        
+        # Find available storage devices
+        echo "Detecting available storage devices..."
+        declare -a STORAGE_DEVICES
+        
+        # Look for standard storage devices first
+        mapfile -t STORAGE_DEVICES < <(lsblk -dpno NAME,SIZE,MODEL | grep -v "$ROOT_DEVICE" | grep -v "loop" | grep -v "sr0")
+        
+        # Always check for eMMC devices (common in IGEL M250C and Raspberry Pi)
+        for mmcdev in /dev/mmcblk*; do
+            # Only consider the base device, not partitions
+            if [[ -b "$mmcdev" && ! "$mmcdev" =~ p[0-9]+ && "$mmcdev" != "$ROOT_DEVICE" ]]; then
+                EMMC_INFO=$(lsblk -dpno NAME,SIZE "$mmcdev" | head -1)
+                if [[ -n "$EMMC_INFO" ]]; then
+                    # Check if this device is already in our list
+                    if ! printf '%s\n' "${STORAGE_DEVICES[@]}" | grep -q "$mmcdev"; then
+                        # Get device model for better identification
+                        if [[ -f "/sys/block/$(basename $mmcdev)/device/name" ]]; then
+                            MMC_MODEL=$(cat "/sys/block/$(basename $mmcdev)/device/name" 2>/dev/null || echo "eMMC")
+                        else
+                            MMC_MODEL="eMMC"
+                        fi
+                        
+                        STORAGE_DEVICES+=("$EMMC_INFO $MMC_MODEL")
+                        echo "Found storage device: $EMMC_INFO ($MMC_MODEL)"
+                    fi
+                fi
+            fi
         done
+        
+        # If running on Raspberry Pi, also check for the SD card
+        if [[ -f "/proc/device-tree/model" && $(cat /proc/device-tree/model) =~ Raspberry ]]; then
+            echo "Detected Raspberry Pi hardware"
+            
+            # On Raspberry Pi, mmcblk0 is typically the SD card
+            if [[ -b "/dev/mmcblk0" && "/dev/mmcblk0" != "$ROOT_DEVICE" ]]; then
+                SD_INFO=$(lsblk -dpno NAME,SIZE "/dev/mmcblk0" | head -1)
+                if [[ -n "$SD_INFO" && ! $(printf '%s\n' "${STORAGE_DEVICES[@]}" | grep -q "/dev/mmcblk0") ]]; then
+                    STORAGE_DEVICES+=("$SD_INFO SD Card")
+                    echo "Found SD card: $SD_INFO"
+                fi
+            fi
+        fi
+        
+        if [[ ${#STORAGE_DEVICES[@]} -eq 0 ]]; then
+            echo "No additional storage devices detected."
+            USE_SECONDARY_STORAGE="false"
+        else
+            echo "Found the following storage devices:"
+            for i in "${!STORAGE_DEVICES[@]}"; do
+                echo "  $((i+1)). ${STORAGE_DEVICES[$i]}"
+            done
+            echo "  0. Do not use any secondary storage"
+            echo
+            echo "Secondary storage can be used for:"
+            echo "  • Swap space (reduces root drive wear)"
+            echo "  • Log storage (improves performance)"
+            echo "  • Persistent data storage"
+            echo
+            echo "Secondary storage includes eMMC, additional USB drives, or SD cards"
+            echo
+            
+            while true; do
+                read -p "Select device to use for secondary storage [0]: " -r storage_choice
+                storage_choice=${storage_choice:-0}
+                
+                if [[ "$storage_choice" =~ ^[0-9]+$ ]]; then
+                    if [[ $storage_choice -eq 0 ]]; then
+                        USE_SECONDARY_STORAGE="false"
+                        SECONDARY_STORAGE_DEVICE=""
+                        break
+                    elif [[ $storage_choice -le ${#STORAGE_DEVICES[@]} ]]; then
+                        USE_SECONDARY_STORAGE="true"
+                        SECONDARY_STORAGE_DEVICE=$(echo "${STORAGE_DEVICES[$((storage_choice-1))]}" | awk '{print $1}')
+                        echo "Using $SECONDARY_STORAGE_DEVICE for secondary storage"
+                        break
+                    else
+                        echo "Invalid choice. Please select 0-${#STORAGE_DEVICES[@]}"
+                    fi
+                else
+                    echo "Please enter a number"
+                fi
+            done
+        fi
         echo
     fi
     
@@ -291,8 +421,68 @@ interactive_config() {
         echo
     fi
     
+    # VPN Selection
+    if [[ -z "$INSTALL_TAILSCALE" && -z "$INSTALL_HEADSCALE" ]]; then
+        echo -e "${YELLOW}VPN Configuration${NC}"
+        echo "Select VPN technology to use for secure routing:"
+        echo
+        echo "1. Tailscale (Recommended)"
+        echo "   • Easy setup with Tailscale's coordination servers"
+        echo "   • Quick device authorization via web dashboard"
+        echo "   • Fully-managed infrastructure"
+        echo
+        echo "2. Headscale (Self-hosted)"
+        echo "   • Self-hosted, open-source implementation"
+        echo "   • Full control over your VPN infrastructure"
+        echo "   • Custom domain and branding"
+        echo
+        echo "3. Both Tailscale and Headscale"
+        echo "   • Use Tailscale with official servers"
+        echo "   • Also run Headscale for your own private network"
+        echo
+        echo "4. None (Skip VPN installation)"
+        echo "   • Skip VPN setup entirely"
+        echo "   • Other TailSentry features will still be available"
+        echo
+        
+        while true; do
+            read -p "Select VPN option [1]: " -n 1 -r vpn_choice
+            echo
+            case $vpn_choice in
+                1|"")
+                    INSTALL_TAILSCALE="true"
+                    INSTALL_HEADSCALE="false"
+                    INSTALL_HEADPLANE="false"
+                    break
+                    ;;
+                2)
+                    INSTALL_TAILSCALE="false"
+                    INSTALL_HEADSCALE="true"
+                    # We'll ask about Headplane later
+                    break
+                    ;;
+                3)
+                    INSTALL_TAILSCALE="true"
+                    INSTALL_HEADSCALE="true"
+                    # We'll ask about Headplane later
+                    break
+                    ;;
+                4)
+                    INSTALL_TAILSCALE="false"
+                    INSTALL_HEADSCALE="false"
+                    INSTALL_HEADPLANE="false"
+                    break
+                    ;;
+                *)
+                    echo "Please select a valid option (1-4)"
+                    ;;
+            esac
+        done
+        echo
+    fi
+    
     # Headscale installation
-    if [[ -z "$INSTALL_HEADSCALE" ]]; then
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
         echo -e "${YELLOW}Self-Hosted VPN Server - Headscale${NC}"
         echo "Headscale is a self-hosted, open-source implementation of the Tailscale coordination server:"
         echo "  • Full control over your VPN infrastructure"
@@ -304,8 +494,6 @@ interactive_config() {
         echo "⚠️  Note: Installing Headscale will make this device a VPN server."
         echo "   Clients will connect to THIS device instead of Tailscale's servers."
         echo
-        while true; do
-            read -p "Install Headscale server for self-hosted VPN? [y/N]: " -n 1 -r headscale_choice
             echo
             case $headscale_choice in
                 [Yy]) 
@@ -440,22 +628,36 @@ interactive_config() {
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
     echo
     echo "Device Hostname: $DEVICE_HOSTNAME"
-    echo "Use eMMC Storage: ${USE_EMMC:-false}"
-    echo "Install CasaOS: ${INSTALL_CASAOS:-false}"
-    echo "Install Cockpit: ${INSTALL_COCKPIT:-false}"
+    echo "Use Secondary Storage: ${USE_SECONDARY_STORAGE:-false}"
+    if [[ "$USE_SECONDARY_STORAGE" == "true" && -n "$SECONDARY_STORAGE_DEVICE" ]]; then
+        echo "Secondary Storage Device: $SECONDARY_STORAGE_DEVICE"
+    fi
+    
+    # VPN Configuration
+    echo -e "${YELLOW}VPN Configuration:${NC}"
+    echo "Install Tailscale: ${INSTALL_TAILSCALE:-false}"
+    if [[ "$INSTALL_TAILSCALE" == "true" ]]; then
+        echo "  Tailscale Auth Key: ${TAILSCALE_AUTH_KEY:+[Provided]}${TAILSCALE_AUTH_KEY:-[Will prompt later]}"
+        echo "  Advertised Routes: $ADVERTISED_ROUTES"
+    fi
+    
     echo "Install Headscale Server: ${INSTALL_HEADSCALE:-false}"
     if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
         echo "  Headscale Domain: ${HEADSCALE_DOMAIN}"
         echo "  Headscale Port: ${HEADSCALE_LISTEN_PORT}"
         echo "  Install Headplane UI: ${INSTALL_HEADPLANE:-false}"
     fi
+    
+    # Other Components
+    echo -e "${YELLOW}Additional Components:${NC}"
+    echo "Install CasaOS: ${INSTALL_CASAOS:-false}"
+    echo "Install Cockpit: ${INSTALL_COCKPIT:-false}"
     echo "Network Interface Mode: $NETWORK_INTERFACE_MODE"
     echo "Security Hardening: ${ENABLE_SECURITY_HARDENING:-false}"
     echo "System Monitoring: ${ENABLE_MONITORING:-false}"
     echo "Maintenance Scripts: ${ENABLE_MAINTENANCE_SCRIPTS:-false}"
     echo "System Optimization: ${ENABLE_SYSTEM_OPTIMIZATION:-false}"
-    echo "Advertised Routes: $ADVERTISED_ROUTES"
-    echo "Tailscale Auth Key: ${TAILSCALE_AUTH_KEY:+[Provided]}${TAILSCALE_AUTH_KEY:-[Will prompt later]}"
+    # These are now shown in the VPN section above
     echo
     
     while true; do
@@ -477,11 +679,11 @@ interactive_config() {
 # Show help information
 show_help() {
     cat << EOF
-IGEL M250C Tailscale Router Setup
+TailSentry - Universal Tailscale Router Setup
 
-This script sets up an IGEL M250C thin client as a headless Tailscale subnet router
-and exit node running Debian 12 from a USB drive. Only Tailscale is required - all
-other features are optional.
+This script configures any compatible hardware as a secure VPN router and
+network gateway using Debian-based Linux distributions. All VPN features
+are optional and can be customized based on your needs.
 
 USAGE:
     sudo ./install.sh [OPTIONS]
@@ -489,9 +691,13 @@ USAGE:
 OPTIONS:
     -h, --help                 Show this help message
     --non-interactive          Run in non-interactive mode (requires environment variables)
-    --tailscale-key=KEY        Tailscale auth key (starts with tskey-auth-)
-    --hostname=NAME            Device hostname (default: igel-m250c-router)
+    --hostname=NAME            Device hostname (default: tailsentry-router)
     --routes=ROUTES            Comma-separated CIDR routes to advertise
+    
+    VPN Options:
+    --tailscale                Enable Tailscale installation (default VPN option)
+    --no-tailscale             Skip Tailscale installation
+    --tailscale-key=KEY        Tailscale auth key (starts with tskey-auth-)
     
     Headscale Self-Hosted VPN Options:
     --headscale                Enable Headscale server installation
@@ -503,7 +709,7 @@ OPTIONS:
     Optional Feature Controls:
     --no-casaos                Skip CasaOS installation (Docker web UI)
     --no-cockpit               Skip Cockpit installation (system management)
-    --no-emmc                  Skip eMMC storage configuration
+    --no-secondary-storage     Skip secondary storage configuration
     --no-security              Skip security hardening
     --no-monitoring            Skip system monitoring service
     --no-maintenance           Skip maintenance scripts and automation
@@ -540,7 +746,7 @@ ENVIRONMENT VARIABLES:
     ADVERTISED_ROUTES            Comma-separated routes
     INSTALL_CASAOS               true/false (install CasaOS)
     INSTALL_COCKPIT              true/false (install Cockpit)
-    USE_EMMC                     true/false (use eMMC storage)
+    USE_SECONDARY_STORAGE        true/false (use secondary storage)
     ENABLE_SECURITY_HARDENING    true/false (security hardening)
     ENABLE_MONITORING            true/false (system monitoring)
     ENABLE_MAINTENANCE_SCRIPTS   true/false (maintenance automation)
@@ -548,25 +754,27 @@ ENVIRONMENT VARIABLES:
     INTERACTIVE_MODE             true/false (enable interactive prompts)
 
 REQUIREMENTS:
-    - IGEL M250C thin client
-    - 64GB+ USB 3.0 drive with Debian 12 minimal/server
+    - Any compatible hardware (Raspberry Pi, old PC, thin client, etc.)
+    - 2+ CPU cores, 2GB+ RAM
+    - 8GB+ storage with Debian 12 minimal/server
     - Internet connection
     - Tailscale account with auth key
     - Root access
 
 For more information, see README.md or visit:
-https://github.com/your-repo/igel-m250c-router
+https://github.com/your-repo/tailsentry-router
 
 EOF
 }
 
 # System information
 show_system_info() {
-    log "=== IGEL M250C System Information ==="
+    log "=== TailSentry System Information ==="
     log "Hostname: $(hostname)"
     log "OS: $(lsb_release -d | cut -f2)"
     log "Kernel: $(uname -r)"
     log "Architecture: $(uname -m)"
+    log "CPU: $(grep "model name" /proc/cpuinfo | head -1 | cut -d ':' -f2 | xargs)"
     log "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
     log "Storage devices:"
     lsblk | tee -a "$LOG_FILE"
@@ -582,6 +790,16 @@ create_app_user() {
         useradd -m -s /bin/bash -c "Application Services User" app-services
         log "Created app-services user"
         
+        # Generate secure random password for app-services user
+        APP_SERVICES_PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-12)
+        echo "app-services:$APP_SERVICES_PASSWORD" | chpasswd
+        
+        # Store password for display at end (will be shown securely)
+        echo "$APP_SERVICES_PASSWORD" > /tmp/app-services-password.tmp
+        chmod 600 /tmp/app-services-password.tmp
+        
+        log "Set secure random password for app-services user"
+        
         # Add to necessary groups for service management
         usermod -a -G docker app-services 2>/dev/null || true  # Will be added later when Docker is installed
         usermod -a -G systemd-journal app-services
@@ -590,6 +808,13 @@ create_app_user() {
         mkdir -p /home/app-services/.ssh
         chmod 700 /home/app-services/.ssh
         chown app-services:app-services /home/app-services/.ssh
+        
+        # Generate SSH keys for the app-services user (for internal use)
+        if [[ ! -f /home/app-services/.ssh/id_ed25519 ]]; then
+            sudo -u app-services ssh-keygen -t ed25519 -f /home/app-services/.ssh/id_ed25519 -N "" -C "app-services@$(hostname)"
+            chown app-services:app-services /home/app-services/.ssh/id_ed25519*
+            log "Generated SSH key pair for app-services user"
+        fi
         
         # Set up basic environment
         cat > /home/app-services/.bashrc << 'EOF'
@@ -611,12 +836,17 @@ export PATH="$HOME/.local/bin:$PATH"
 # Tailscale status shortcut
 alias ts='tailscale status'
 
-# IGEL router management shortcuts
-alias router-status='sudo systemctl status tailscaled casaos cockpit.socket igel-monitor 2>/dev/null'
-alias router-health='sudo /usr/local/bin/igel-health-check 2>/dev/null || echo "Health check not installed"'
+# TailSentry router management shortcuts
+alias router-status='sudo systemctl status tailscaled casaos cockpit.socket tailsentry-monitor 2>/dev/null'
+alias router-health='sudo /usr/local/bin/tailsentry-health-check 2>/dev/null || echo "Health check not installed"'
 
-echo "Welcome to IGEL M250C Router - app-services user"
-echo "Use 'router-status' to check service status"
+# Security reminder
+echo "════════════════════════════════════════════════════════════════"
+echo "🔐 TailSentry Router - app-services user"
+echo "    Limited service management account"
+echo "    Use 'router-status' to check services"
+echo "    Use 'passwd' to change your password"
+echo "════════════════════════════════════════════════════════════════"
 EOF
         
         chown app-services:app-services /home/app-services/.bashrc
@@ -626,10 +856,13 @@ EOF
 # Allow app-services user to manage specific services without password
 app-services ALL=(ALL) NOPASSWD: /bin/systemctl status *, /bin/systemctl start casaos, /bin/systemctl stop casaos, /bin/systemctl restart casaos
 app-services ALL=(ALL) NOPASSWD: /bin/systemctl start cockpit.socket, /bin/systemctl stop cockpit.socket, /bin/systemctl restart cockpit.socket
+app-services ALL=(ALL) NOPASSWD: /bin/systemctl start tailsentry-dashboard, /bin/systemctl stop tailsentry-dashboard, /bin/systemctl restart tailsentry-dashboard
 app-services ALL=(ALL) NOPASSWD: /usr/bin/tailscale status, /usr/bin/tailscale ip, /usr/bin/tailscale netcheck
-app-services ALL=(ALL) NOPASSWD: /usr/local/bin/igel-*, /usr/local/bin/router-*
-app-services ALL=(ALL) NOPASSWD: /bin/cat /var/log/igel-*.log, /bin/tail /var/log/igel-*.log
-app-services ALL=(ALL) NOPASSWD: /bin/journalctl -u tailscaled, /bin/journalctl -u casaos, /bin/journalctl -u cockpit.socket
+app-services ALL=(ALL) NOPASSWD: /usr/local/bin/tailsentry-*, /usr/local/bin/router-*
+app-services ALL=(ALL) NOPASSWD: /bin/cat /var/log/tailsentry-*.log, /bin/tail /var/log/tailsentry-*.log
+app-services ALL=(ALL) NOPASSWD: /bin/journalctl -u tailscaled, /bin/journalctl -u casaos, /bin/journalctl -u cockpit.socket, /bin/journalctl -u tailsentry-dashboard
+# Allow password change for self
+app-services ALL=(app-services) /usr/bin/passwd
 EOF
         
         log "Configured sudo permissions for app-services user"
@@ -658,7 +891,6 @@ update_system() {
         systemd \
         systemd-timesyncd \
         iptables \
-        iptables-persistent \
         ufw \
         fail2ban \
         htop \
@@ -694,7 +926,7 @@ update_system() {
         findutils \
         grep \
         sed \
-        awk \
+        gawk \
         bc \
         jq
     
@@ -758,7 +990,7 @@ configure_ip_forwarding() {
     # Enable IP forwarding with optimized settings for routing
     cat >> /etc/sysctl.conf << 'EOF'
 
-# IGEL Router Configuration
+# TailSentry Router Configuration
 # IPv4 forwarding
 net.ipv4.ip_forward = 1
 
@@ -835,7 +1067,7 @@ install_headscale() {
     # Create Headscale configuration
     log "Configuring Headscale..."
     cat > /etc/headscale/config.yaml << EOF
-# Headscale configuration for IGEL M250C Router
+# Headscale configuration for TailSentry Router
 server_url: http://${HEADSCALE_DOMAIN}:${HEADSCALE_LISTEN_PORT}
 listen_addr: 0.0.0.0:${HEADSCALE_LISTEN_PORT}
 metrics_listen_addr: 127.0.0.1:9090
@@ -888,7 +1120,7 @@ EOF
     # Create ACL policy file
     cat > /etc/headscale/acl.hujson << 'EOF'
 {
-  // Default ACL for IGEL Router - Allow all traffic
+  // Default ACL for TailSentry Router - Allow all traffic
   "acls": [
     {
       "action": "accept",
@@ -1105,18 +1337,63 @@ install_dashboard() {
         return
     fi
 
-    log "=== Installing IGEL M250C Dashboard ==="
+    log "=== Installing TailSentry Dashboard ==="
     
     # Install Python and dependencies
     apt-get update
     apt-get install -y python3 python3-pip python3-venv
     
-    # Copy dashboard files to system location
-    local dashboard_dir="/opt/igel-setup/web-dashboard"
+    # Determine dashboard location - try both old and new paths
+    local dashboard_dir
+    if [[ -d "$SCRIPT_DIR/web-dashboard" ]]; then
+        dashboard_dir="$SCRIPT_DIR/web-dashboard"
+    elif [[ -d "/opt/igel-setup/web-dashboard" ]]; then
+        dashboard_dir="/opt/igel-setup/web-dashboard"
+    elif [[ -d "/opt/tailsentry/web-dashboard" ]]; then
+        dashboard_dir="/opt/tailsentry/web-dashboard"
+    fi
     
     if [[ ! -d "$dashboard_dir" ]]; then
-        log_error "Dashboard files not found at $dashboard_dir"
-        return 1
+        log_error "Dashboard files not found. Checked $SCRIPT_DIR/web-dashboard, /opt/igel-setup/web-dashboard, and /opt/tailsentry/web-dashboard"
+        
+        # Try to create the directory structure if we're in the correct place
+        if [[ -d "$SCRIPT_DIR" && -f "$SCRIPT_DIR/install.sh" && -d "$SCRIPT_DIR/web-dashboard" ]]; then
+            log "Attempting to create directory structure for dashboard..."
+            mkdir -p /opt/tailsentry/web-dashboard
+            cp -r "$SCRIPT_DIR/web-dashboard"/* /opt/tailsentry/web-dashboard/ 2>/dev/null || true
+            
+            if [[ -d "/opt/tailsentry/web-dashboard" && "$(ls -A /opt/tailsentry/web-dashboard 2>/dev/null)" ]]; then
+                dashboard_dir="/opt/tailsentry/web-dashboard"
+                log "Successfully copied dashboard files to /opt/tailsentry/web-dashboard"
+            else
+                log_error "Failed to create dashboard directory structure"
+                return 1
+            fi
+        else
+            return 1
+        fi
+    fi
+    
+    log "Found dashboard files at: $dashboard_dir"
+    
+    # Create compatibility symlinks for legacy scripts
+    log "Creating compatibility symlinks for legacy scripts"
+    
+    # Ensure legacy directory exists
+    mkdir -p /opt/igel-setup
+    
+    # Create symlinks for both directions to ensure all scripts work
+    if [[ "$dashboard_dir" != "/opt/igel-setup/web-dashboard" ]]; then
+        ln -sf "$dashboard_dir" /opt/igel-setup/web-dashboard
+    fi
+    
+    # Create symlinks for main directories
+    if [[ ! -L "/opt/igel-setup/scripts" ]]; then
+        ln -sf /opt/tailsentry/scripts /opt/igel-setup/scripts
+    fi
+    
+    if [[ ! -L "/opt/igel-setup/configs" ]]; then
+        ln -sf /opt/tailsentry/configs /opt/igel-setup/configs
     fi
     
     # Make setup script executable
@@ -1130,7 +1407,7 @@ install_dashboard() {
     # Add dashboard to firewall
     ufw allow "$DASHBOARD_PORT"
     
-    log "IGEL Dashboard installed successfully"
+    log "TailSentry Dashboard installed successfully"
     log "Dashboard will be available at: http://$(hostname -I | awk '{print $1}'):$DASHBOARD_PORT"
     log "Default credentials: admin/admin123 and user/user123"
     log "Please change these default passwords!"
@@ -1270,56 +1547,100 @@ configure_tailscale() {
 }
 
 # Detect and configure eMMC
-configure_emmc() {
-    if [[ "$USE_EMMC" != "true" ]]; then
-        log "eMMC usage disabled, skipping..."
+configure_secondary_storage() {
+    if [[ "$USE_SECONDARY_STORAGE" != "true" || -z "$SECONDARY_STORAGE_DEVICE" ]]; then
+        log "Secondary storage usage disabled or no device selected, skipping..."
         return
     fi
 
-    log "=== Configuring eMMC Storage ==="
+    log "=== Configuring Secondary Storage Device ==="
     
-    # Look for eMMC device (usually mmcblk0)
-    EMMC_DEVICE=""
-    for device in /dev/mmcblk*; do
-        if [[ -b "$device" ]]; then
-            EMMC_DEVICE="$device"
-            break
-        fi
-    done
-    
-    if [[ -z "$EMMC_DEVICE" ]]; then
-        log_warning "No eMMC device found, skipping eMMC configuration"
+    if [[ ! -b "$SECONDARY_STORAGE_DEVICE" ]]; then
+        log_warning "Device $SECONDARY_STORAGE_DEVICE not found or not a block device, skipping configuration"
         return
     fi
     
-    log "Found eMMC device: $EMMC_DEVICE"
+    log "Using storage device: $SECONDARY_STORAGE_DEVICE"
     
-    # Get eMMC size
-    EMMC_SIZE=$(lsblk -b -d -n -o SIZE "$EMMC_DEVICE" 2>/dev/null || echo "0")
-    EMMC_SIZE_GB=$((EMMC_SIZE / 1024 / 1024 / 1024))
+    # Get device size
+    STORAGE_SIZE=$(lsblk -b -d -n -o SIZE "$SECONDARY_STORAGE_DEVICE" 2>/dev/null || echo "0")
+    STORAGE_SIZE_GB=$((STORAGE_SIZE / 1024 / 1024 / 1024))
     
-    log "eMMC size: ${EMMC_SIZE_GB}GB"
+    log "Storage size: ${STORAGE_SIZE_GB}GB"
     
-    if [[ $EMMC_SIZE_GB -lt 3 ]]; then
-        log_warning "eMMC too small (${EMMC_SIZE_GB}GB), skipping configuration"
+    # Make sure device is large enough (at least 1GB)
+    if [[ $STORAGE_SIZE_GB -lt 1 ]]; then
+        log_warning "Storage device too small (${STORAGE_SIZE_GB}GB), skipping configuration"
         return
     fi
     
-    # Create partition table and swap partition
-    log "Creating swap partition on eMMC..."
-    parted -s "$EMMC_DEVICE" mklabel gpt
-    parted -s "$EMMC_DEVICE" mkpart primary linux-swap 0% 100%
+    # Confirm with user before proceeding
+    echo -e "${RED}WARNING: This will erase ALL data on $SECONDARY_STORAGE_DEVICE${NC}"
+    echo "This operation will:"
+    echo "  1. Create a new partition table"
+    echo "  2. Create a swap partition (50%)"
+    echo "  3. Create a log partition (50%)"
+    echo
+    read -p "Proceed with formatting $SECONDARY_STORAGE_DEVICE? [y/N]: " -n 1 -r storage_confirm
+    echo
     
-    # Format as swap
-    mkswap "${EMMC_DEVICE}p1"
+    if [[ ! $storage_confirm =~ ^[Yy]$ ]]; then
+        log "Secondary storage configuration cancelled by user"
+        return
+    fi
+    
+    # Create partition table and partitions
+    log "Creating partitions on $SECONDARY_STORAGE_DEVICE..."
+    parted -s "$SECONDARY_STORAGE_DEVICE" mklabel gpt
+    parted -s "$SECONDARY_STORAGE_DEVICE" mkpart primary linux-swap 0% 50%
+    parted -s "$SECONDARY_STORAGE_DEVICE" mkpart primary ext4 50% 100%
+    
+    # Determine partition names (handles both /dev/sdX and /dev/mmcblkX naming)
+    if [[ "$SECONDARY_STORAGE_DEVICE" =~ mmcblk|nvme ]]; then
+        SWAP_PART="${SECONDARY_STORAGE_DEVICE}p1"
+        LOG_PART="${SECONDARY_STORAGE_DEVICE}p2"
+    else
+        SWAP_PART="${SECONDARY_STORAGE_DEVICE}1"
+        LOG_PART="${SECONDARY_STORAGE_DEVICE}2"
+    fi
+    
+    # Wait for partitions to be available
+    log "Waiting for partitions to be recognized..."
+    sleep 2
+    
+    # Format partitions
+    log "Formatting swap partition..."
+    mkswap "$SWAP_PART"
+    
+    log "Formatting log partition..."
+    mkfs.ext4 -F "$LOG_PART"
+    
+    # Create mount point for logs
+    mkdir -p /var/log/tailsentry
     
     # Add to fstab
-    echo "${EMMC_DEVICE}p1 none swap sw 0 0" >> /etc/fstab
+    echo "$SWAP_PART none swap sw 0 0" >> /etc/fstab
+    echo "$LOG_PART /var/log/tailsentry ext4 defaults 0 2" >> /etc/fstab
     
-    # Enable swap
-    swapon "${EMMC_DEVICE}p1"
+    # Enable swap and mount logs
+    log "Enabling swap..."
+    swapon "$SWAP_PART"
     
-    log "eMMC swap configured successfully"
+    log "Mounting log partition..."
+    mount "$LOG_PART" /var/log/tailsentry
+    
+    # Set up log symlinks
+    log "Setting up log symlinks..."
+    mkdir -p /var/log/tailsentry/journal
+    
+    # Move journald logs to secondary storage
+    if [[ -d /var/log/journal ]]; then
+        rsync -a /var/log/journal/ /var/log/tailsentry/journal/
+        rm -rf /var/log/journal
+        ln -sf /var/log/tailsentry/journal /var/log/journal
+    fi
+    
+    log "Secondary storage configured successfully"
 }
 
 # Install CasaOS
@@ -1339,6 +1660,9 @@ install_casaos() {
     chown -R app-services:app-services /home/app-services/casaos-data
     
     # Create a convenience script for app-services user to manage containers
+    mkdir -p /home/app-services/.local/bin
+    chmod 755 /home/app-services/.local/bin
+    chown -R app-services:app-services /home/app-services/.local
     cat > /home/app-services/.local/bin/casa-manage << 'EOF'
 #!/bin/bash
 # CasaOS container management helper for app-services user
@@ -1368,7 +1692,7 @@ case "$1" in
 esac
 EOF
     
-    mkdir -p /home/app-services/.local/bin
+    # Set proper ownership and permissions for the script
     chown app-services:app-services /home/app-services/.local/bin/casa-manage
     chmod +x /home/app-services/.local/bin/casa-manage
     
@@ -1454,14 +1778,32 @@ configure_firewall() {
 create_monitoring_service() {
     log "=== Creating Monitoring Service ==="
     
-    cat > /etc/systemd/system/igel-monitor.service << 'EOF'
+    # Create the TailSentry monitor service
+    cat > /etc/systemd/system/tailsentry-monitor.service << 'EOF'
 [Unit]
-Description=IGEL M250C System Monitor
+Description=TailSentry System Monitor
 After=network.target tailscaled.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/igel-monitor.sh
+ExecStart=/usr/local/bin/tailsentry-monitor.sh
+Restart=always
+RestartSec=30
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create a compatibility service for legacy systems
+    cat > /etc/systemd/system/igel-monitor.service << 'EOF'
+[Unit]
+Description=Legacy IGEL System Monitor (Compatibility)
+After=network.target tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tailsentry-monitor.sh
 Restart=always
 RestartSec=30
 User=root
@@ -1471,11 +1813,11 @@ WantedBy=multi-user.target
 EOF
 
     # Create monitoring script
-    cat > /usr/local/bin/igel-monitor.sh << 'EOF'
+    cat > /usr/local/bin/tailsentry-monitor.sh << 'EOF'
 #!/bin/bash
-# Simple monitoring script for IGEL M250C
+# Simple monitoring script for TailSentry
 
-LOG_FILE="/var/log/igel-monitor.log"
+LOG_FILE="/var/log/tailsentry-monitor.log"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
@@ -1503,13 +1845,19 @@ while true; do
 done
 EOF
 
-    chmod +x /usr/local/bin/igel-monitor.sh
+    chmod +x /usr/local/bin/tailsentry-monitor.sh
     
-    # Enable and start the service
+    # Create a symlink for backward compatibility
+    ln -sf /usr/local/bin/tailsentry-monitor.sh /usr/local/bin/igel-monitor.sh
+    
+    # Enable and start the services
+    systemctl enable tailsentry-monitor.service
+    systemctl start tailsentry-monitor.service
+    
+    # Also enable the legacy service for compatibility
     systemctl enable igel-monitor.service
-    systemctl start igel-monitor.service
     
-    log "Monitoring service created and started"
+    log "Monitoring services created and started"
 }
 
 # Final system optimization
@@ -1545,33 +1893,56 @@ EOF
     log "System optimization completed"
 }
 
+# Install WiFi management scripts
+install_wifi_manager() {
+    log "=== Setting Up WiFi Management Tools ==="
+    
+    # Install required packages
+    apt install -y hostapd dnsmasq wireless-tools wpasupplicant iw network-manager
+    
+    # Copy scripts to bin directory
+    cp "$SCRIPT_DIR/scripts/wifi-manager.sh" /usr/local/bin/wifi-manager.sh
+    cp "$SCRIPT_DIR/scripts/gateway-setup.sh" /usr/local/bin/gateway-setup.sh
+    chmod +x /usr/local/bin/wifi-manager.sh /usr/local/bin/gateway-setup.sh
+    
+    # Create symbolic link for easier access
+    ln -sf /usr/local/bin/wifi-manager.sh /usr/local/bin/tailsentry-wifi
+    ln -sf /usr/local/bin/gateway-setup.sh /usr/local/bin/tailsentry-gateway
+    
+    log "WiFi management tools installed"
+}
+
 # Create maintenance scripts and cron jobs
 create_maintenance_scripts() {
     log "=== Setting Up Maintenance Scripts ==="
     
-    # Copy maintenance scripts to system location
+    # Copy maintenance scripts to system location with both TailSentry and legacy IGEL naming
     if [[ -f "$SCRIPT_DIR/scripts/maintenance.sh" ]]; then
-        cp "$SCRIPT_DIR/scripts/maintenance.sh" /usr/local/bin/igel-maintenance
-        chmod +x /usr/local/bin/igel-maintenance
-        log "Maintenance script installed: /usr/local/bin/igel-maintenance"
+        cp "$SCRIPT_DIR/scripts/maintenance.sh" /usr/local/bin/tailsentry-maintenance
+        chmod +x /usr/local/bin/tailsentry-maintenance
+        ln -sf /usr/local/bin/tailsentry-maintenance /usr/local/bin/igel-maintenance
+        log "Maintenance script installed: /usr/local/bin/tailsentry-maintenance (with igel-maintenance symlink)"
     fi
     
     if [[ -f "$SCRIPT_DIR/scripts/network-setup.sh" ]]; then
-        cp "$SCRIPT_DIR/scripts/network-setup.sh" /usr/local/bin/igel-network-setup
-        chmod +x /usr/local/bin/igel-network-setup
-        log "Network setup script installed: /usr/local/bin/igel-network-setup"
+        cp "$SCRIPT_DIR/scripts/network-setup.sh" /usr/local/bin/tailsentry-network-setup
+        chmod +x /usr/local/bin/tailsentry-network-setup
+        ln -sf /usr/local/bin/tailsentry-network-setup /usr/local/bin/igel-network-setup
+        log "Network setup script installed: /usr/local/bin/tailsentry-network-setup (with igel-network-setup symlink)"
     fi
     
     if [[ -f "$SCRIPT_DIR/scripts/health-check.sh" ]]; then
-        cp "$SCRIPT_DIR/scripts/health-check.sh" /usr/local/bin/igel-health-check
-        chmod +x /usr/local/bin/igel-health-check
-        log "Health check script installed: /usr/local/bin/igel-health-check"
+        cp "$SCRIPT_DIR/scripts/health-check.sh" /usr/local/bin/tailsentry-health-check
+        chmod +x /usr/local/bin/tailsentry-health-check
+        ln -sf /usr/local/bin/tailsentry-health-check /usr/local/bin/igel-health-check
+        log "Health check script installed: /usr/local/bin/tailsentry-health-check (with igel-health-check symlink)"
     fi
     
     if [[ -f "$SCRIPT_DIR/scripts/wireless-manager.sh" ]]; then
-        cp "$SCRIPT_DIR/scripts/wireless-manager.sh" /usr/local/bin/igel-wireless
-        chmod +x /usr/local/bin/igel-wireless
-        log "Wireless manager script installed: /usr/local/bin/igel-wireless"
+        cp "$SCRIPT_DIR/scripts/wireless-manager.sh" /usr/local/bin/tailsentry-wireless
+        chmod +x /usr/local/bin/tailsentry-wireless
+        ln -sf /usr/local/bin/tailsentry-wireless /usr/local/bin/igel-wireless
+        log "Wireless manager script installed: /usr/local/bin/tailsentry-wireless (with igel-wireless symlink)"
     fi
     
     # Setup automated maintenance
@@ -1609,7 +1980,7 @@ For app-services user:
   router-health        - Run health diagnostics
   update-console       - Refresh physical console login screen
 
-For full command reference: cat /opt/igel-setup/QUICK_REFERENCE.md
+For full command reference: check the TailSentry QUICK_REFERENCE.md
 Installation logs: tail -f /var/log/igel-setup.log
 
 EOF
@@ -2052,13 +2423,13 @@ show_final_status() {
     echo "  Health check:     igel-health-check"
     echo "  System maintenance: igel-maintenance health"
     echo "  Network setup:    igel-network-setup detect"
-    echo "  Backup config:    /opt/igel-setup/scripts/backup-config.sh backup"
+    echo "  Backup config:    tailsentry-backup backup"
     echo "  View logs:        tail -f /var/log/igel-setup.log"
     
     echo
     
     # Storage Status
-    if [[ "$USE_EMMC" == "true" ]]; then
+    if [[ "$USE_SECONDARY_STORAGE" == "true" ]]; then
         echo -e "${BLUE}💾 Storage Configuration${NC}"
         echo "  eMMC optimization: Enabled"
         local swap_status=$(swapon --show --noheadings | wc -l)
@@ -2105,34 +2476,90 @@ show_final_status() {
         echo "  • Check QUICK_REFERENCE.md for complete command list"
     fi
     echo "  • Use 'tailscale status' to verify VPN connectivity"
+    
+    # Display app-services password securely
+    if [[ -f "/tmp/app-services-password.tmp" ]]; then
+        echo
+        echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║                        🔐 SECURITY CREDENTIALS                        ║${NC}"  
+        echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
+        echo
+        echo -e "${RED}IMPORTANT: Save these credentials securely!${NC}"
+        echo
+        echo "app-services user password: $(cat /tmp/app-services-password.tmp)"
+        echo
+        echo -e "${BLUE}To change the password:${NC}"
+        echo "  1. SSH to: ssh app-services@$(hostname -I | awk '{print $1}')"
+        echo "  2. Run: passwd"
+        echo "  3. Enter current password (shown above)"
+        echo "  4. Enter new password twice"
+        echo
+        echo -e "${BLUE}To set up SSH key authentication (recommended):${NC}"
+        echo "  1. On your client: ssh-keygen -t ed25519 -C 'your-email@example.com'"
+        echo "  2. Copy key: ssh-copy-id app-services@$(hostname -I | awk '{print $1}')"
+        echo "  3. Test: ssh app-services@$(hostname -I | awk '{print $1}')"
+        echo
+        # Clean up password file
+        rm -f /tmp/app-services-password.tmp
+    fi
+    
+    echo
+    echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                        🛡️  SECURITY RECOMMENDATIONS                  ║${NC}"
+    echo -e "${BLUE}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo "For enhanced security, consider:"
+    echo "  1. Change the root password: passwd"
+    echo "  2. Disable root SSH login (edit /etc/ssh/sshd_config)"
+    echo "  3. Use SSH keys instead of passwords"
+    echo "  4. Enable firewall logging: ufw logging on"
+    echo "  5. Monitor system logs regularly"
+    echo "  6. Keep system updated: apt update && apt upgrade"
+    echo
     echo
     echo "Configuration saved to: $LOG_FILE"
-    echo "For troubleshooting: /opt/igel-setup/README.md"
+    echo "For troubleshooting: check the TailSentry README.md"
     
     echo
     log "Next Steps:"
-    if tailscale status >/dev/null 2>&1; then
-        log "1. Configure your Tailscale admin console to approve subnet routes"
-        log "2. Test connectivity from other Tailscale devices"
-        if [[ "$INSTALL_CASAOS" == "true" ]]; then
-            log "3. Access CasaOS web interface to install additional services"
+    
+    # Tailscale specific instructions
+    if [[ "$INSTALL_TAILSCALE" == "true" ]]; then
+        if tailscale status >/dev/null 2>&1; then
+            log "1. Configure your Tailscale admin console to approve subnet routes"
+            log "2. Test connectivity from other Tailscale devices"
+        else
+            echo -e "${YELLOW}To complete Tailscale setup, run:${NC}"
+            echo -e "${BLUE}tailscale up --advertise-routes=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12 --advertise-exit-node --accept-routes${NC}"
+            echo
+            echo "This will provide a URL to visit for authentication."
+            echo
+            log "1. Complete Tailscale authentication (see command above)"
+            log "2. Configure your Tailscale admin console to approve subnet routes"
+            log "3. Test connectivity from other Tailscale devices"
         fi
-        if [[ "$INSTALL_COCKPIT" == "true" ]]; then
-            log "4. Use Cockpit for advanced system management"
+    fi
+    
+    # Headscale specific instructions
+    if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
+        if [[ "$INSTALL_TAILSCALE" == "true" ]]; then
+            log "For Headscale:"
         fi
-    else
-        echo -e "${YELLOW}To complete Tailscale setup, run:${NC}"
-        echo -e "${BLUE}tailscale up --advertise-routes=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12 --advertise-exit-node --accept-routes${NC}"
-        echo
-        echo "This will provide a URL to visit for authentication."
-        echo
-        log "1. Complete Tailscale authentication (see command above)"
-        log "2. Configure your Tailscale admin console to approve subnet routes"
-        log "3. Test connectivity from other Tailscale devices"
-        log "4. Access CasaOS web interface to install additional services"
-        if [[ "$INSTALL_COCKPIT" == "true" ]]; then
-            log "5. Use Cockpit for advanced system management"
+        log "- Access Headscale at http://$HEADSCALE_DOMAIN:$HEADSCALE_LISTEN_PORT"
+        if [[ "$INSTALL_HEADPLANE" == "true" ]]; then
+            log "- Access Headplane UI at http://$HEADSCALE_DOMAIN:8081"
         fi
+        log "- To add a client: headscale --user <username> preauthkeys create"
+    fi
+    
+    # Additional services
+    if [[ "$INSTALL_CASAOS" == "true" ]]; then
+        log "Access CasaOS web interface to install additional services"
+    fi
+    
+    if [[ "$INSTALL_COCKPIT" == "true" ]]; then
+        log "Use Cockpit for advanced system management"
+    fi
     fi
     
     log "Log files are available at: $LOG_FILE"
@@ -2150,8 +2577,15 @@ main() {
             --non-interactive)
                 INTERACTIVE_MODE="false"
                 ;;
+            --tailscale)
+                INSTALL_TAILSCALE="true"
+                ;;
+            --no-tailscale)
+                INSTALL_TAILSCALE="false"
+                ;;
             --tailscale-key=*)
                 TAILSCALE_AUTH_KEY="${1#*=}"
+                INSTALL_TAILSCALE="true"
                 ;;
             --hostname=*)
                 DEVICE_HOSTNAME="${1#*=}"
@@ -2165,8 +2599,8 @@ main() {
             --no-casaos)
                 INSTALL_CASAOS="false"
                 ;;
-            --no-emmc)
-                USE_EMMC="false"
+            --no-secondary-storage)
+                USE_SECONDARY_STORAGE="false"
                 ;;
             --no-security)
                 ENABLE_SECURITY_HARDENING="false"
@@ -2196,10 +2630,12 @@ main() {
                 INSTALL_HEADSCALE="false"
                 ;;
             --minimal)
-                # Minimal installation - only Tailscale and basic system setup
+                # Minimal installation - only Tailscale (by default) and basic system setup
+                INSTALL_TAILSCALE="true"
+                INSTALL_HEADSCALE="false"
                 INSTALL_COCKPIT="false"
                 INSTALL_CASAOS="false"
-                USE_EMMC="false"
+                USE_SECONDARY_STORAGE="false"
                 ENABLE_SECURITY_HARDENING="false"
                 ENABLE_MONITORING="false"
                 ENABLE_MAINTENANCE_SCRIPTS="false"
@@ -2207,9 +2643,12 @@ main() {
                 ;;
             --full)
                 # Full installation - enable all features
+                INSTALL_TAILSCALE="true"
+                INSTALL_HEADSCALE="true"
+                INSTALL_HEADPLANE="true"
                 INSTALL_COCKPIT="true"
                 INSTALL_CASAOS="true"
-                USE_EMMC="true"
+                USE_SECONDARY_STORAGE="true"
                 ENABLE_SECURITY_HARDENING="true"
                 ENABLE_MONITORING="true"
                 ENABLE_MAINTENANCE_SCRIPTS="true"
@@ -2251,7 +2690,11 @@ main() {
     show_system_info
     update_system
     configure_ip_forwarding
-    install_tailscale
+    
+    # Install VPN based on user selection
+    if [[ "$INSTALL_TAILSCALE" == "true" ]]; then
+        install_tailscale
+    fi
     
     # Install Headscale if requested (before Tailscale configuration)
     if [[ "$INSTALL_HEADSCALE" == "true" ]]; then
@@ -2267,11 +2710,14 @@ main() {
         fi
     fi
     
-    configure_tailscale
+    # Configure Tailscale if installed
+    if [[ "$INSTALL_TAILSCALE" == "true" ]]; then
+        configure_tailscale
+    fi
     
     # Optional features - only install if enabled
-    if [[ "$USE_EMMC" == "true" ]]; then
-        configure_emmc
+    if [[ "$USE_SECONDARY_STORAGE" == "true" ]]; then
+        configure_secondary_storage
     fi
     
     if [[ "$INSTALL_CASAOS" == "true" ]]; then
@@ -2286,6 +2732,9 @@ main() {
     if [[ "$INSTALL_DASHBOARD" == "true" ]]; then
         install_dashboard
     fi
+    
+    # Install WiFi management tools
+    install_wifi_manager
     
     configure_firewall
     
@@ -2331,6 +2780,7 @@ error_cleanup() {
     systemctl stop tailscaled 2>/dev/null || true
     systemctl stop casaos 2>/dev/null || true
     systemctl stop cockpit.socket 2>/dev/null || true
+    systemctl stop tailsentry-monitor 2>/dev/null || true
     systemctl stop igel-monitor 2>/dev/null || true
     systemctl stop docker 2>/dev/null || true
     systemctl stop ssh 2>/dev/null || true

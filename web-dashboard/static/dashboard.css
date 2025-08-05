@@ -321,3 +321,68 @@ body {
         border-color: #4a5568;
     }
 }
+
+/* Configuration Section Styles */
+.section-content {
+    min-height: 400px;
+}
+
+.configuration-feature-card {
+    transition: all 0.2s ease-in-out;
+}
+
+.configuration-feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.configuration-feature-card .card-header {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-bottom: 1px solid #dee2e6;
+}
+
+.configuration-feature-card.border-success .card-header {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    border-bottom: 1px solid #b8dabc;
+}
+
+.alert-sm {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+.web-interface-card {
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+.web-interface-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.web-interface-card.available {
+    border-color: var(--success-color);
+}
+
+.web-interface-card.unavailable {
+    border-color: var(--secondary-color);
+    opacity: 0.7;
+}
+
+/* Feature status indicators */
+.feature-status-enabled {
+    border-left: 4px solid var(--success-color);
+    background: linear-gradient(90deg, rgba(40, 167, 69, 0.1) 0%, transparent 100%);
+}
+
+.feature-status-installed {
+    border-left: 4px solid var(--warning-color);
+    background: linear-gradient(90deg, rgba(255, 193, 7, 0.1) 0%, transparent 100%);
+}
+
+.feature-status-disabled {
+    border-left: 4px solid var(--secondary-color);
+    background: linear-gradient(90deg, rgba(108, 117, 125, 0.1) 0%, transparent 100%);
+}

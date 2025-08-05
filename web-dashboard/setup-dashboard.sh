@@ -54,16 +54,25 @@ EOF
     fi
     
     # Install systemd service
-    if [[ ! -f "/etc/systemd/system/igel-dashboard.service" ]]; then
-        log "Installing dashboard systemd service..."
+    log "Installing dashboard systemd service..."
+    
+    # Install TailSentry dashboard service
+    if [[ -f "$DASHBOARD_DIR/tailsentry-dashboard.service" ]]; then
+        cp "$DASHBOARD_DIR/tailsentry-dashboard.service" /etc/systemd/system/
+        systemctl daemon-reload
+        systemctl enable tailsentry-dashboard
+    fi
+    
+    # Install or update IGEL dashboard service (compatibility)
+    if [[ -f "$DASHBOARD_DIR/igel-dashboard.service" ]]; then
         cp "$DASHBOARD_DIR/igel-dashboard.service" /etc/systemd/system/
         systemctl daemon-reload
         systemctl enable igel-dashboard
     fi
     
     # Set up log rotation
-    cat > /etc/logrotate.d/igel-dashboard << EOF
-/var/log/igel-dashboard*.log {
+    cat > /etc/logrotate.d/tailsentry-dashboard << EOF
+/var/log/tailsentry-dashboard*.log /var/log/igel-dashboard*.log {
     daily
     missingok
     rotate 7

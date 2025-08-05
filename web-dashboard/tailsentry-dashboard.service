@@ -1,0 +1,21 @@
+[Unit]
+Description=TailSentry Router Dashboard
+After=network.target tailscaled.service
+
+[Service]
+Type=forking
+User=app-services
+Group=app-services
+WorkingDirectory=/opt/tailsentry/web-dashboard
+Environment=PATH=/opt/tailsentry/web-dashboard/venv/bin
+Environment=DASHBOARD_PORT=8088
+Environment=FLASK_ENV=production
+ExecStart=/opt/tailsentry/web-dashboard/venv/bin/gunicorn --daemon --workers 2 --bind 0.0.0.0:8088 --pid /var/run/tailsentry-dashboard.pid app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+PIDFile=/var/run/tailsentry-dashboard.pid
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

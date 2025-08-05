@@ -1,6 +1,6 @@
 """
-API endpoints for IGEL M250C Router Dashboard
-Handles VPN management, system control, and configuration
+API endpoints for TailSentry Router Dashboard
+Handles VPN management, system control, WiFi, and configuration
 """
 
 from flask import Blueprint, request, jsonify
@@ -401,6 +401,197 @@ def restart_service():
             'message': 'Internal server error'
         }), 500
 
+@api.route('/system/configuration', methods=['GET'])
+def get_system_configuration():
+    """Get IGEL router system configuration and status"""
+    try:
+        # Read configuration from environment or defaults
+        config = {
+            'features': {
+                'headscale': {
+                    'name': 'Self-Hosted VPN Server - Headscale',
+                    'description': 'Self-hosted, open-source implementation of the Tailscale coordination server',
+                    'benefits': [
+                        'Full control over your VPN infrastructure',
+                        'No reliance on external Tailscale service',
+                        'Custom domain and branding',
+                        'Advanced access controls and policies',
+                        'Includes Headplane web UI for management'
+                    ],
+                    'warning': 'Installing Headscale will make this device a VPN server. Clients will connect to THIS device instead of Tailscale\'s servers.',
+                    'installed': False,
+                    'enabled': False,
+                    'status': 'Not Installed'
+                },
+                'security_hardening': {
+                    'name': 'Security Hardening',
+                    'description': 'Additional security measures to harden this router',
+                    'benefits': [
+                        'Fail2ban for intrusion prevention',
+                        'Automatic security updates',
+                        'SSH hardening and monitoring',
+                        'Kernel security settings',
+                        'Enhanced logging and monitoring'
+                    ],
+                    'installed': False,
+                    'enabled': False,
+                    'status': 'Not Configured'
+                },
+                'system_monitoring': {
+                    'name': 'System Monitoring',
+                    'description': 'System monitoring service that tracks system health',
+                    'benefits': [
+                        'Tailscale connectivity status',
+                        'Disk and memory usage',
+                        'Service health and performance',
+                        'Automated log collection'
+                    ],
+                    'installed': False,
+                    'enabled': False,
+                    'status': 'Not Installed'
+                },
+                'automated_maintenance': {
+                    'name': 'Automated Maintenance',
+                    'description': 'Maintenance scripts and automated tasks',
+                    'benefits': [
+                        'System health checks and diagnostics',
+                        'Automated backups and updates',
+                        'Network connectivity monitoring',
+                        'Log rotation and cleanup'
+                    ],
+                    'installed': False,
+                    'enabled': False,
+                    'status': 'Not Configured'
+                },
+                'system_optimization': {
+                    'name': 'System Optimization',
+                    'description': 'System optimizations for router performance',
+                    'benefits': [
+                        'Reduced logging to preserve USB drive',
+                        'Optimized kernel parameters for networking',
+                        'Memory and swap optimizations',
+                        'Log rotation and journald configuration'
+                    ],
+                    'installed': False,
+                    'enabled': False,
+                    'status': 'Not Applied'
+                }
+            },
+            'web_interfaces': {
+                'dashboard': {
+                    'name': 'IGEL Dashboard',
+                    'description': 'Custom router management interface',
+                    'port': 8088,
+                    'enabled': True,
+                    'url': f"http://{get_local_ip()}:8088"
+                },
+                'casaos': {
+                    'name': 'CasaOS',
+                    'description': 'Docker container management',
+                    'port': 80,
+                    'enabled': False,
+                    'url': f"http://{get_local_ip()}"
+                },
+                'cockpit': {
+                    'name': 'Cockpit',
+                    'description': 'Advanced system management',
+                    'port': 9090,
+                    'enabled': False,
+                    'url': f"https://{get_local_ip()}:9090"
+                },
+                'headplane': {
+                    'name': 'Headplane',
+                    'description': 'Headscale web UI',
+                    'port': 3001,
+                    'enabled': False,
+                    'url': f"http://{get_local_ip()}:3001"
+                }
+            }
+        }
+        
+        # Check actual service status
+        try:
+            # Check Headscale
+            headscale_status = run_command("systemctl is-active headscale")
+            if headscale_status['success'] and headscale_status['stdout'] == 'active':
+                config['features']['headscale']['installed'] = True
+                config['features']['headscale']['enabled'] = True
+                config['features']['headscale']['status'] = 'Running'
+                config['web_interfaces']['headplane']['enabled'] = True
+            elif run_command("which headscale")['success']:
+                config['features']['headscale']['installed'] = True
+                config['features']['headscale']['status'] = 'Installed but not running'
+            
+            # Check monitoring service
+            monitor_status = run_command("systemctl is-active igel-monitor")
+            if monitor_status['success'] and monitor_status['stdout'] == 'active':
+                config['features']['system_monitoring']['installed'] = True
+                config['features']['system_monitoring']['enabled'] = True
+                config['features']['system_monitoring']['status'] = 'Active'
+            elif run_command("systemctl list-unit-files | grep igel-monitor")['success']:
+                config['features']['system_monitoring']['installed'] = True
+                config['features']['system_monitoring']['status'] = 'Installed but not running'
+            
+            # Check CasaOS
+            casaos_status = run_command("systemctl is-active casaos")
+            if casaos_status['success'] and casaos_status['stdout'] == 'active':
+                config['web_interfaces']['casaos']['enabled'] = True
+            
+            # Check Cockpit
+            cockpit_status = run_command("systemctl is-active cockpit.socket")
+            if cockpit_status['success'] and cockpit_status['stdout'] == 'active':
+                config['web_interfaces']['cockpit']['enabled'] = True
+            
+            # Check security hardening (fail2ban as indicator)
+            fail2ban_status = run_command("systemctl is-active fail2ban")
+            if fail2ban_status['success'] and fail2ban_status['stdout'] == 'active':
+                config['features']['security_hardening']['installed'] = True
+                config['features']['security_hardening']['enabled'] = True
+                config['features']['security_hardening']['status'] = 'Active'
+            
+            # Check maintenance scripts
+            if run_command("ls /usr/local/bin/igel-* 2>/dev/null")['success']:
+                config['features']['automated_maintenance']['installed'] = True
+                config['features']['automated_maintenance']['status'] = 'Scripts Installed'
+                
+                # Check if cron jobs are set up
+                cron_check = run_command("crontab -l | grep igel")
+                if cron_check['success']:
+                    config['features']['automated_maintenance']['enabled'] = True
+                    config['features']['automated_maintenance']['status'] = 'Active with Scheduled Tasks'
+            
+            # Check system optimization (journald config as indicator)
+            if run_command("ls /etc/systemd/journald.conf.d/storage.conf 2>/dev/null")['success']:
+                config['features']['system_optimization']['installed'] = True
+                config['features']['system_optimization']['enabled'] = True
+                config['features']['system_optimization']['status'] = 'Applied'
+            
+        except Exception as e:
+            logger.warning(f"Error checking service status: {e}")
+        
+        return jsonify({
+            'success': True,
+            'configuration': config,
+            'last_updated': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting system configuration: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Internal server error'
+        }), 500
+
+def get_local_ip():
+    """Get the local IP address"""
+    try:
+        result = run_command("hostname -I | awk '{print $1}'")
+        if result['success'] and result['stdout']:
+            return result['stdout'].strip()
+        return 'localhost'
+    except:
+        return 'localhost'
+
 @api.route('/system/logs/<service>')
 def get_service_logs(service):
     """Get logs for a system service"""
@@ -434,3 +625,7 @@ def get_service_logs(service):
             'success': False,
             'message': 'Internal server error'
         }), 500
+
+# Import and register the WiFi API
+from .wifi import wifi_api
+api.register_blueprint(wifi_api, url_prefix='/wifi')
